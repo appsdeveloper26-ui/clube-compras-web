@@ -1,0 +1,1911 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel da loja</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#F5F5F1">
+<link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png">
+<link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Loja CC">
+<!-- instalar como app: guarda o convite do navegador (Chrome/Edge) e explica o caminho nos outros -->
+<script>
+(function () {
+  var adiado = null;
+  function instalado() { return !!((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone); }
+  function avisar() { window.dispatchEvent(new Event('instalar-mudou')); }
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); adiado = e; avisar(); });
+  window.addEventListener('appinstalled', function () { adiado = null; avisar(); });
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+  }
+  window.__instalar = {
+    instalado: instalado,
+    direto: function () { return !!adiado; },
+    abrir: async function () {
+      if (!adiado) return null;
+      var ev = adiado; adiado = null;
+      ev.prompt();
+      var r = await ev.userChoice;
+      avisar();
+      return r && r.outcome;
+    },
+    dica: function () {
+      var ua = navigator.userAgent;
+      if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'No iPhone ou iPad, abra no Safari, toque em Compartilhar (o quadrado com a seta) e depois em "Adicionar à Tela de Início".';
+      if (/Firefox\//.test(ua)) return 'O Firefox não instala páginas como app. Abra este endereço no Chrome, no Edge ou no Safari e clique em "Instalar app".';
+      if (/Edg\//.test(ua)) return 'No Edge: menu ··· > Aplicativos > "Instalar este site como um aplicativo".';
+      if (/Safari\//.test(ua) && !/Chrome|Chromium/.test(ua)) return 'No Safari do Mac: menu Arquivo > "Adicionar ao Dock". O app abre em janela própria, com o ícone no Dock e no Launchpad.';
+      if (/Android/.test(ua)) return 'No Chrome do Android: menu ⋮ > "Instalar app" (ou "Adicionar à tela inicial").';
+      return 'No Chrome: clique no ícone de instalar no fim da barra de endereço, ou no menu ⋮ > "Transmitir, salvar e compartilhar" > "Instalar página como app".';
+    }
+  };
+})();
+</script>
+
+<!-- tema claro/escuro: "auto" segue o aparelho; a escolha fica guardada neste aparelho -->
+<style>
+html[data-tema="escuro"]{filter:invert(1) hue-rotate(180deg);background:#0B0C0D;color-scheme:light}
+html[data-tema="escuro"] img,html[data-tema="escuro"] video,html[data-tema="escuro"] [style*="url("],html[data-tema="escuro"] [data-tema-fixo]{filter:invert(1) hue-rotate(180deg)}
+</style>
+<script>
+(function () {
+  var escolha = null, sistema = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  try { escolha = localStorage.getItem('tema'); } catch (e) {}
+  function aplicar() {
+    var escuro = escolha === 'escuro' || (escolha !== 'claro' && !!(sistema && sistema.matches));
+    document.documentElement.setAttribute('data-tema', escuro ? 'escuro' : 'claro');
+    var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', escuro ? '#0B0C0D' : '#F5F5F1');
+  }
+  aplicar();
+  if (sistema && sistema.addEventListener) sistema.addEventListener('change', aplicar);
+  window.__tema = {
+    get: function () { return escolha === 'claro' || escolha === 'escuro' ? escolha : 'auto'; },
+    set: function (v) {
+      escolha = v === 'claro' || v === 'escuro' ? v : null;
+      try { if (escolha) localStorage.setItem('tema', escolha); else localStorage.removeItem('tema'); } catch (e) {}
+      aplicar();
+    }
+  };
+})();
+</script>
+<script src="./config.js"></script>
+<script src="./supabase.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face{font-family:Manrope;font-style:normal;font-weight:400 800;font-display:swap;src:url(fonts/manrope-latin.woff2) format("woff2")}
+body{margin:0;background:#F5F5F1}
+a{color:#1E5B48}a:hover{color:#123B2E}
+button{font-family:inherit;cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.6}
+input,select{font-family:inherit}
+th{font-weight:700}
+</style>
+</helmet>
+<div style="min-height: 100vh; box-sizing: border-box; background: #F5F5F1; color: #15171A; font-family: Manrope, system-ui, sans-serif; font-size: 15px">
+
+<!-- ============ ENTRAR ============ -->
+<sc-if value="{{is.entrar}}" hint-placeholder-val="{{ true }}">
+<div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box">
+<div style="width: 100%; max-width: 400px; background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 20px; padding: 28px; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box">
+<div style="width: 48px; height: 48px; border-radius: 14px; background: #1E5B48; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 800">CC</div>
+<h1 style="margin: 0; font-size: 24px; font-weight: 800">Painel da loja</h1>
+<p style="margin: 0; color: #5B616B; line-height: 1.5">Entre com o e-mail cadastrado na equipe. Enviamos um código de 6 dígitos.</p>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">E-mail<input type="email" autocomplete="email" autocapitalize="none" value="{{email}}" onChange="{{onEmail}}" placeholder="voce@loja.com" style="height: 46px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 14px; font-size: 16px; color: #15171A"></label>
+<sc-if value="{{codeSent}}" hint-placeholder-val="{{ false }}">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Código<input id="codigo" inputmode="numeric" maxlength="6" autocomplete="one-time-code" value="{{otp}}" onChange="{{onOtp}}" placeholder="000000" style="height: 46px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 14px; font-size: 18px; letter-spacing: 0.3em; color: #15171A"></label>
+</sc-if>
+<button onClick="{{loginAction}}" disabled="{{busy}}" style="height: 48px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800; font-size: 15px">{{loginLabel}}</button>
+<sc-if value="{{hasLoginMsg}}" hint-placeholder-val="{{ false }}"><p style="margin: 0; font-size: 13px; font-weight: 600; color: #A3262A">{{loginMsg}}</p></sc-if>
+<sc-if value="{{canInstall}}" hint-placeholder-val="{{ false }}"><button id="instalar-entrar" onClick="{{installApp}}" style="align-self: center; height: 36px; padding: 0 8px; border: 0; background: transparent; color: #1E5B48; font-weight: 700; font-size: 13px; text-decoration: underline">Instalar o painel como app neste computador</button></sc-if>
+</div>
+</div>
+</sc-if>
+
+<!-- ============ SEM ACESSO ============ -->
+<sc-if value="{{is.semAcesso}}" hint-placeholder-val="{{ false }}">
+<div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box">
+<div style="max-width: 440px; display: flex; flex-direction: column; gap: 14px">
+<h1 style="margin: 0; font-size: 24px; font-weight: 800">Você ainda não está numa equipe</h1>
+<p style="margin: 0; color: #5B616B; line-height: 1.5">Sua conta {{meEmail}} foi criada. Peça ao gestor da loja para adicionar este e-mail em Equipe e depois toque em Verificar.</p>
+<div style="display: flex; gap: 10px">
+<button onClick="{{reload}}" style="height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Verificar</button>
+<button onClick="{{signOut}}" style="height: 44px; padding: 0 16px; border: 1px solid #C9CBC4; border-radius: 12px; background: #FFFFFF; color: #15171A; font-weight: 700">Sair</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<!-- ============ CARREGANDO ============ -->
+<sc-if value="{{is.carregando}}" hint-placeholder-val="{{ false }}">
+<div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; color: #5B616B">{{loadingText}}</div>
+</sc-if>
+
+<!-- ============ PAINEL ============ -->
+<sc-if value="{{is.painel}}" hint-placeholder-val="{{ false }}">
+<div>
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 24px; background: #FFFFFF; border-bottom: 1px solid #DCDDD7">
+<div style="display: flex; align-items: center; gap: 12px">
+<div style="width: 40px; height: 40px; border-radius: 11px; background: {{store.color}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 800">{{store.initials}}</div>
+<div style="display: flex; flex-direction: column"><span style="font-weight: 800; font-size: 17px">{{store.name}}</span><span style="font-size: 13px; color: #5B616B">{{store.subtitle}}</span></div>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+<sc-if value="{{hasManyStores}}" hint-placeholder-val="{{ false }}">
+<div role="group" aria-label="Loja" style="display: flex; gap: 6px; flex-wrap: wrap">
+<sc-for list="{{storeSwitch}}" as="s" hint-placeholder-count="2">
+<button onClick="{{s.pick}}" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid {{s.bd}}; background: {{s.bg}}; color: {{s.fg}}; font-weight: 700; font-size: 13px">{{s.label}}</button>
+</sc-for>
+</div>
+</sc-if>
+<span style="font-size: 12px; font-weight: 700; color: {{liveColor}}">{{liveLabel}}</span>
+<span style="font-size: 13px; color: #5B616B">{{meLine}}</span>
+<button id="tema" onClick="{{cycleTheme}}" aria-label="{{temaLabel}}" title="{{temaLabel}}" style="height: 36px; padding: 0 10px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #15171A; font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; gap: 6px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg>{{temaShort}}</button>
+<sc-if value="{{canInstall}}" hint-placeholder-val="{{ false }}"><button id="instalar" onClick="{{installApp}}" title="Instalar como app neste computador ou celular" style="height: 36px; padding: 0 10px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #15171A; font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; gap: 6px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Instalar app</button></sc-if>
+<button onClick="{{signOut}}" style="height: 36px; padding: 0 12px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #15171A; font-weight: 700; font-size: 13px">Sair</button>
+</div>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; gap: 24px; padding: 24px; max-width: 1360px; margin: 0 auto; box-sizing: border-box">
+<nav aria-label="Seções da loja" style="flex: 1 1 200px; max-width: 260px; display: flex; flex-direction: column; gap: 4px">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="6">
+<button onClick="{{t.go}}" style="height: 44px; padding: 0 14px; border: 0; border-radius: 12px; background: {{t.bg}}; color: {{t.fg}}; font-weight: 700; font-size: 14px; text-align: left; display: flex; align-items: center; justify-content: space-between">
+<span>{{t.label}}</span>
+<sc-if value="{{t.hasCount}}" hint-placeholder-val="{{ false }}"><span style="min-width: 22px; height: 22px; border-radius: 999px; background: #A04A12; color: #FFFFFF; font-size: 12px; display: flex; align-items: center; justify-content: center; padding: 0 6px; box-sizing: border-box">{{t.count}}</span></sc-if>
+</button>
+</sc-for>
+<sc-if value="{{isAtendente}}" hint-placeholder-val="{{ false }}">
+<p style="margin: 12px 4px 0; font-size: 12px; line-height: 1.5; color: #5B616B">Perfil atendente: o gestor define o que você acessa em Equipe.</p>
+</sc-if>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+<sc-if value="{{isSuspended}}" hint-placeholder-val="{{ false }}">
+<div id="alerta-suspensa" role="alert" style="border-radius: 14px; padding: 14px 16px; background: #B3261E; color: #FFFFFF; font-size: 14px; line-height: 1.5; display: flex; gap: 12px; align-items: flex-start"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><div><b>{{suspendedTitle}}</b> {{suspendedText}}</div></div>
+</sc-if>
+<sc-if value="{{hasSubNotice}}" hint-placeholder-val="{{ false }}">
+<div id="aviso-assinatura" role="status" style="border-radius: 14px; padding: 12px 16px; background: {{subNotice.bg}}; color: {{subNotice.fg}}; font-size: 14px; line-height: 1.5"><b>{{subNotice.title}}</b> {{subNotice.text}}</div>
+</sc-if>
+
+<!-- PEDIDOS -->
+<sc-if value="{{is.pedidos}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Pedidos</h1>
+<span style="font-size: 13px; color: #5B616B">Pedidos novos aparecem aqui sozinhos</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{orderFilters}}" as="f" hint-placeholder-count="5">
+<button onClick="{{f.pick}}" style="height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid {{f.bd}}; background: {{f.bg}}; color: {{f.fg}}; font-weight: 700; font-size: 13px">{{f.label}}</button>
+</sc-for>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; overflow-x: auto">
+<table style="width: 100%; min-width: 820px; border-collapse: collapse; font-size: 14px">
+<thead><tr style="text-align: left; color: #5B616B; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em"><th style="padding: 12px 16px">Pedido</th><th style="padding: 12px 8px">Comprador</th><th style="padding: 12px 8px">Itens</th><th style="padding: 12px 8px">Total</th><th style="padding: 12px 8px">Situação</th><th style="padding: 12px 16px; text-align: right">Ação</th></tr></thead>
+<tbody>
+<sc-for list="{{orderRows}}" as="o" hint-placeholder-count="4">
+<tr style="border-top: 1px solid #ECEDE8">
+<td style="padding: 12px 16px"><span style="font-weight: 800">#{{o.id}}</span><br><span style="font-size: 12px; color: #5B616B">{{o.when}}</span></td>
+<td style="padding: 12px 8px">{{o.buyer}}</td>
+<td style="padding: 12px 8px; color: #5B616B">{{o.items}}<br><span style="font-size: 12px">{{o.fulfilLabel}} · {{o.pay}}</span></td>
+<td style="padding: 12px 8px; font-weight: 700">{{o.totalLabel}}</td>
+<td style="padding: 12px 8px"><span style="display: inline-block; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 4px 10px; background: {{o.badgeBg}}; color: {{o.badgeFg}}">{{o.statusLabel}}</span><sc-if value="{{o.hasDeadline}}" hint-placeholder-val="{{ false }}"><br><span style="font-size: 12px; color: #A04A12; font-weight: 700">{{o.deadlineLabel}}</span></sc-if></td>
+<td style="padding: 12px 16px; text-align: right; white-space: nowrap">
+<sc-if value="{{o.hasAction}}" hint-placeholder-val="{{ true }}"><button onClick="{{o.advance}}" disabled="{{busy}}" style="height: 36px; padding: 0 12px; border: 0; border-radius: 10px; background: #1E5B48; color: #FFFFFF; font-weight: 700; font-size: 13px">{{o.actionLabel}}</button></sc-if>
+<sc-if value="{{o.canCancel}}" hint-placeholder-val="{{ false }}"><button onClick="{{o.cancel}}" disabled="{{busy}}" style="height: 36px; padding: 0 12px; margin-left: 6px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #A3262A; font-weight: 700; font-size: 13px">Cancelar</button></sc-if>
+<sc-if value="{{o.noAction}}" hint-placeholder-val="{{ false }}"><span style="font-size: 13px; color: #5B616B">—</span></sc-if>
+</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<sc-if value="{{noOrdersInFilter}}" hint-placeholder-val="{{ false }}"><p style="margin: 0; color: #5B616B">Nenhum pedido nesta situação.</p></sc-if>
+</div>
+</sc-if>
+
+<!-- CATÁLOGO -->
+<sc-if value="{{is.catalogo}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px">
+<div style="display: flex; flex-direction: column; gap: 2px"><h1 style="margin: 0; font-size: 26px; font-weight: 800">Catálogo</h1>
+<span id="destaques-hoje" style="font-size: 13px; font-weight: 700; color: {{hlColor}}">{{hlLine}}</span></div>
+<sc-if value="{{canEdit}}" hint-placeholder-val="{{ true }}"><button onClick="{{toggleForm}}" style="height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">{{formToggleLabel}}</button></sc-if>
+</div>
+<sc-if value="{{showForm}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-wrap: wrap; gap: 16px; background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 20px">
+<div style="flex: 2 1 320px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+<div style="grid-column: span 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px">
+<span style="font-weight: 800">{{formTitle}}</span>
+<div role="group" aria-label="Tipo de item" style="display: flex; gap: 6px">
+<sc-for list="{{kindOpts}}" as="k" hint-placeholder-count="2">
+<button onClick="{{k.pick}}" style="height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid {{k.bd}}; background: {{k.bg}}; color: {{k.fg}}; font-weight: 700; font-size: 13px">{{k.label}}</button>
+</sc-for>
+</div>
+</div>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B; grid-column: span 2">Nome<input id="p-nome" value="{{form.name}}" onChange="{{onFormName}}" placeholder="Ex.: Saia midi de viscose" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B; grid-column: span 2">Descrição<input id="p-desc" value="{{form.desc}}" onChange="{{onFormDesc}}" placeholder="Material, medidas, cuidados" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Preço (R$)<input id="p-preco" value="{{form.price}}" onChange="{{onFormPrice}}" inputmode="decimal" placeholder="0,00" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Categoria<input id="p-cat" value="{{form.cat}}" onChange="{{onFormCat}}" placeholder="Ex.: Camisas" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<sc-if value="{{formIsProduct}}" hint-placeholder-val="{{ true }}">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">{{variantsLabel}}<input id="p-var" value="{{form.variants}}" onChange="{{onFormVariants}}" placeholder="P, M, G" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">{{stockFieldLabel}}<input id="p-estoque" value="{{form.stock}}" onChange="{{onFormStock}}" inputmode="numeric" placeholder="5" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+</sc-if>
+<sc-if value="{{formIsService}}" hint-placeholder-val="{{ false }}">
+<p style="grid-column: span 2; margin: 0; font-size: 13px; color: #5B616B; line-height: 1.5">Serviço não tem estoque nem variações: o comprador contrata pelo app e vocês combinam data e detalhes pela conversa.</p>
+</sc-if>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">SKU (opcional)<input id="p-sku" value="{{form.sku}}" onChange="{{onFormSku}}" placeholder="AL-0000" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Valor da entrega (R$)<input id="p-entrega" inputmode="decimal" value="{{form.shipping}}" onChange="{{onFormShipping}}" placeholder="vazio = taxa geral" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Prazo para pagamento<select id="p-prazo" value="{{form.deadline}}" onChange="{{onFormDeadline}}" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 10px; font-size: 15px; color: #15171A; background: #FFFFFF"><sc-for list="{{deadlineOptions}}" as="o" hint-placeholder-count="3"><option value="{{o.value}}">{{o.label}}</option></sc-for></select><span style="font-size: 12px; font-weight: 400; line-height: 1.4">Sem pagamento nesse tempo, a compra é cancelada e o estoque volta. Com vários itens, vale o menor prazo.</span></label>
+<div style="grid-column: span 2; display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 13px; font-weight: 700; color: #5B616B">Fotos ({{photoCount}} de 4)</span>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{formPhotos}}" as="ph" hint-placeholder-count="2">
+<div style="position: relative; width: 84px; height: 84px; border-radius: 10px; background: #ECEDE8 url('{{ph.src}}') center / cover no-repeat; border: 1px solid #DCDDD7">
+<button onClick="{{ph.remove}}" aria-label="Remover foto" style="position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border: 0; border-radius: 999px; background: rgba(21,23,26,0.75); color: #FFFFFF; font-size: 15px; line-height: 1">×</button>
+</div>
+</sc-for>
+<sc-if value="{{canAddPhoto}}" hint-placeholder-val="{{ true }}">
+<label style="width: 84px; height: 84px; border: 1px dashed #C9CBC4; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 12px; font-weight: 700; color: #1E5B48; cursor: pointer; text-align: center">+ Foto<input id="p-fotos" type="file" accept="image/*" multiple onChange="{{onPhotos}}" style="position: absolute; width: 1px; height: 1px; opacity: 0"></label>
+</sc-if>
+</div>
+</div>
+</div>
+<div style="flex: 1 1 200px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 12px; font-weight: 700; color: #5B616B; text-transform: uppercase; letter-spacing: 0.05em">Pré-visualização no app</span>
+<div style="border: 1px solid #DCDDD7; border-radius: 16px; padding: 10px; display: flex; flex-direction: column; gap: 6px; max-width: 200px">
+<div style="height: 130px; border-radius: 10px; background: {{preview.bg}}"></div>
+<span style="font-weight: 700; font-size: 14px">{{preview.name}}</span>
+<span style="font-weight: 800">{{preview.price}}</span>
+<span style="font-size: 12px; color: #5B616B">{{preview.variants}}</span>
+</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<sc-if value="{{isNewForm}}" hint-placeholder-val="{{ true }}">
+<button onClick="{{saveDraft}}" disabled="{{busy}}" style="height: 44px; padding: 0 14px; border: 1px solid #C9CBC4; border-radius: 12px; background: #FFFFFF; color: #15171A; font-weight: 700">Salvar rascunho</button>
+<button onClick="{{publishNew}}" disabled="{{busy}}" style="height: 44px; padding: 0 14px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Publicar</button>
+</sc-if>
+<sc-if value="{{isEditForm}}" hint-placeholder-val="{{ false }}">
+<button onClick="{{cancelEdit}}" disabled="{{busy}}" style="height: 44px; padding: 0 14px; border: 1px solid #C9CBC4; border-radius: 12px; background: #FFFFFF; color: #15171A; font-weight: 700">Cancelar</button>
+<button onClick="{{saveEdit}}" disabled="{{busy}}" style="height: 44px; padding: 0 14px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Salvar alterações</button>
+</sc-if>
+</div>
+</div>
+</div>
+</sc-if>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; overflow-x: auto">
+<table style="width: 100%; min-width: 760px; border-collapse: collapse; font-size: 14px">
+<thead><tr style="text-align: left; color: #5B616B; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em"><th style="padding: 12px 16px">Produto</th><th style="padding: 12px 8px">Preço</th><th style="padding: 12px 8px">Estoque por variação</th><th style="padding: 12px 8px">Status</th><th style="padding: 12px 16px; text-align: right">Ação</th></tr></thead>
+<tbody>
+<sc-for list="{{productRows}}" as="p" hint-placeholder-count="4">
+<tr style="border-top: 1px solid #ECEDE8">
+<td style="padding: 12px 16px"><div style="display: flex; align-items: center; gap: 10px"><div style="width: 44px; height: 44px; border-radius: 8px; flex-shrink: 0; background: {{p.thumb}}"></div><div><span style="font-weight: 700">{{p.name}}</span><br><span style="font-size: 12px; color: #5B616B">{{p.cat}} · {{p.history}}</span></div></div></td>
+<td style="padding: 12px 8px; font-weight: 700">{{p.priceLabel}}</td>
+<td style="padding: 12px 8px">
+<sc-if value="{{p.isService}}" hint-placeholder-val="{{ false }}"><span style="font-size: 13px; color: #5B616B">Serviço · sem estoque</span></sc-if>
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{p.variants}}" as="v" hint-placeholder-count="2">
+<span style="display: inline-flex; align-items: center; gap: 4px; border: 1px solid #DCDDD7; border-radius: 10px; padding: 2px 4px 2px 8px; font-size: 13px; color: {{v.color}}">{{v.label}} <b>{{v.stock}}</b>
+<sc-if value="{{canEdit}}" hint-placeholder-val="{{ true }}"><button onClick="{{v.dec}}" aria-label="Diminuir estoque" style="width: 26px; height: 26px; border: 0; border-radius: 6px; background: #F0F1EC; color: #15171A">−</button><button onClick="{{v.inc}}" aria-label="Aumentar estoque" style="width: 26px; height: 26px; border: 0; border-radius: 6px; background: #F0F1EC; color: #15171A">+</button></sc-if>
+</span>
+</sc-for>
+</div>
+</td>
+<td style="padding: 12px 8px"><span style="display: inline-block; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 4px 10px; background: {{p.badgeBg}}; color: {{p.badgeFg}}">{{p.statusLabel}}</span></td>
+<td style="padding: 12px 16px; text-align: right">
+<sc-if value="{{canEdit}}" hint-placeholder-val="{{ true }}"><button onClick="{{p.edit}}" style="height: 36px; padding: 0 12px; margin-right: 6px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #15171A; font-weight: 700; font-size: 13px">Editar</button><button onClick="{{p.toggle}}" style="height: 36px; padding: 0 12px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #15171A; font-weight: 700; font-size: 13px">{{p.toggleLabel}}</button><sc-if value="{{p.canHighlight}}" hint-placeholder-val="{{ false }}"><button onClick="{{p.highlight}}" disabled="{{busy}}" style="height: 36px; padding: 0 12px; margin-left: 6px; border: 1px solid {{p.hlBd}}; border-radius: 10px; background: {{p.hlBg}}; color: {{p.hlFg}}; font-weight: 700; font-size: 13px">{{p.hlLabel}}</button></sc-if></sc-if>
+<sc-if value="{{isAtendente}}" hint-placeholder-val="{{ false }}"><span style="font-size: 13px; color: #5B616B">Somente leitura</span></sc-if>
+</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</div>
+</sc-if>
+
+<!-- MENSAGENS -->
+<sc-if value="{{is.mensagens}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Mensagens</h1>
+<sc-if value="{{noThreads}}" hint-placeholder-val="{{ false }}"><p style="margin: 0; color: #5B616B">Nenhuma conversa ainda. Quando um comprador escrever, ela aparece aqui.</p></sc-if>
+<sc-if value="{{hasThreads}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 8px">
+<sc-for list="{{threads}}" as="t" hint-placeholder-count="3">
+<button onClick="{{t.open}}" style="text-align: left; border: 1px solid {{t.bd}}; background: #FFFFFF; border-radius: 14px; padding: 12px; color: #15171A; display: flex; flex-direction: column; gap: 4px">
+<span style="font-weight: 800">{{t.buyer}}</span>
+<span style="font-size: 13px; color: #5B616B">{{t.preview}}</span>
+</button>
+</sc-for>
+</div>
+<div style="flex: 3 1 360px; min-width: 0; background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; display: flex; flex-direction: column; min-height: 360px">
+<div style="padding: 12px 16px; border-bottom: 1px solid #ECEDE8; font-weight: 800">{{thread.buyer}}</div>
+<div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 10px">
+<sc-for list="{{thread.msgs}}" as="m" hint-placeholder-count="3">
+<div style="display: flex; justify-content: {{m.justify}}">
+<sc-if value="{{m.isText}}" hint-placeholder-val="{{ true }}"><div style="max-width: 70%; padding: 10px 14px; border-radius: 14px; background: {{m.bg}}; color: {{m.fg}}; font-size: 14px; line-height: 1.45; white-space: pre-line">{{m.text}}</div></sc-if>
+<sc-if value="{{m.isImage}}" hint-placeholder-val="{{ false }}"><a href="{{m.src}}" target="_blank" rel="noopener" style="display: block; max-width: 60%"><img src="{{m.src}}" alt="Imagem da conversa" style="max-width: 100%; max-height: 280px; border-radius: 14px; border: 1px solid #DCDDD7; background: #ECEDE8; display: block"></a></sc-if>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; gap: 8px; padding: 12px; border-top: 1px solid #ECEDE8">
+<label for="resp" style="position: absolute; left: -9999px">Resposta</label>
+<label aria-label="Enviar imagem" style="width: 44px; height: 44px; border: 1px solid #C9CBC4; border-radius: 12px; background: #FFFFFF; color: #15171A; display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative; cursor: pointer; box-sizing: border-box"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 16l5-5 4 4 3-3 6 6"></path></svg><input id="resp-foto" type="file" accept="image/*" onChange="{{onReplyPhoto}}" style="position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden"></label>
+<input id="resp" value="{{reply}}" onChange="{{onReply}}" placeholder="{{replyPlaceholder}}" style="flex: 1; min-width: 0; height: 44px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 12px; font-size: 15px">
+<button onClick="{{sendReply}}" disabled="{{busy}}" style="height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Enviar</button>
+</div>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<!-- ADMINISTRAÇÃO -->
+<sc-if value="{{is.administracao}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Administração do clube</h1>
+<p style="margin: 0; color: #5B616B">Canal direto entre a loja e a administração: assinatura, liberações, suspensão e dúvidas. Só o gestor vê esta conversa.</p>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; display: flex; flex-direction: column; min-height: 320px; max-width: 760px">
+<div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 10px">
+<sc-if value="{{noAdminMsgs}}" hint-placeholder-val="{{ false }}"><p style="margin: 0; color: #5B616B">Nenhuma mensagem ainda. Escreva abaixo e a administração responde por aqui.</p></sc-if>
+<sc-for list="{{adminMsgs}}" as="m" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; align-items: {{m.justify}}; gap: 3px">
+<div style="max-width: 75%; padding: 10px 14px; border-radius: 14px; background: {{m.bg}}; color: {{m.fg}}; font-size: 14px; line-height: 1.45; white-space: pre-line; box-shadow: 0 0 0 2px {{m.bd}}">{{m.text}}</div>
+<span style="font-size: 12px; color: #5B616B">{{m.when}}</span>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; gap: 8px; padding: 12px; border-top: 1px solid #ECEDE8">
+<label for="adm-resp" style="position: absolute; left: -9999px">Mensagem para a administração</label>
+<input id="adm-resp" value="{{adminReply}}" onChange="{{onAdminReply}}" placeholder="Escreva para a administração do clube" style="flex: 1; min-width: 0; height: 44px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 12px; font-size: 15px">
+<button onClick="{{sendAdmin}}" disabled="{{busy}}" style="height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Enviar</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<!-- ASSINATURA (só o gestor) -->
+<sc-if value="{{is.assinatura}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Assinatura</h1>
+<p style="margin: 0; color: #5B616B">Situação da assinatura da loja com o clube e os pagamentos registrados pela administração.</p>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div id="assinatura-situacao" style="flex: 1 1 320px; background: #FFFFFF; border: 1px solid {{ass.bd}}; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px">
+<span style="font-size: 13px; font-weight: 700; color: #5B616B">Situação</span>
+<span style="font-size: 13px; font-weight: 800; border-radius: 999px; padding: 4px 12px; background: {{ass.bg}}; color: {{ass.fg}}">{{ass.status}}</span>
+</div>
+<span style="font-size: 22px; font-weight: 800">{{ass.headline}}</span>
+<sc-for list="{{ass.rows}}" as="r" hint-placeholder-count="3">
+<div style="display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid #ECEDE8; padding-top: 8px; font-size: 14px"><span style="color: #5B616B">{{r.k}}</span><span style="font-weight: 700; text-align: right">{{r.v}}</span></div>
+</sc-for>
+<sc-if value="{{ass.hasRule}}" hint-placeholder-val="{{ false }}"><p style="margin: 0; font-size: 13px; line-height: 1.5; color: {{ass.ruleColor}}">{{ass.rule}}</p></sc-if>
+</div>
+<div id="assinatura-ultimo" style="flex: 1 1 280px; background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 13px; font-weight: 700; color: #5B616B">Último pagamento</span>
+<sc-if value="{{ass.noPays}}" hint-placeholder-val="{{ false }}"><span style="font-size: 15px; color: #5B616B">Nenhum pagamento registrado ainda.</span></sc-if>
+<sc-if value="{{ass.hasPays}}" hint-placeholder-val="{{ false }}">
+<span style="font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums">{{ass.lastAmount}}</span>
+<sc-for list="{{ass.lastRows}}" as="r" hint-placeholder-count="4">
+<div style="display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid #ECEDE8; padding-top: 8px; font-size: 14px"><span style="color: #5B616B">{{r.k}}</span><span style="font-weight: 700; text-align: right">{{r.v}}</span></div>
+</sc-for>
+</sc-if>
+<button onClick="{{goAdmin}}" style="align-self: flex-start; margin-top: auto; height: 40px; padding: 0 14px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #15171A; font-weight: 700; font-size: 13px">Falar com a administração</button>
+</div>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; overflow-x: auto">
+<table id="assinatura-pagamentos" style="width: 100%; min-width: 640px; border-collapse: collapse; font-size: 14px">
+<thead><tr style="text-align: left; color: #5B616B; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em"><th style="padding: 12px 16px">Pago em</th><th style="padding: 12px 8px">Plano</th><th style="padding: 12px 8px">Valor</th><th style="padding: 12px 8px">Forma</th><th style="padding: 12px 8px">Período</th><th style="padding: 12px 16px">Observação</th></tr></thead>
+<tbody>
+<sc-for list="{{ass.pays}}" as="pg" hint-placeholder-count="2">
+<tr style="border-top: 1px solid #ECEDE8"><td style="padding: 12px 16px; white-space: nowrap">{{pg.when}}</td><td style="padding: 12px 8px">{{pg.plan}}</td><td style="padding: 12px 8px; font-weight: 700; font-variant-numeric: tabular-nums">{{pg.amount}}</td><td style="padding: 12px 8px">{{pg.method}}</td><td style="padding: 12px 8px; white-space: nowrap">{{pg.period}}</td><td style="padding: 12px 16px; color: #5B616B">{{pg.note}}</td></tr>
+</sc-for>
+</tbody>
+</table>
+<sc-if value="{{ass.noPays}}" hint-placeholder-val="{{ false }}"><p style="margin: 0; padding: 0 16px 14px; font-size: 14px; color: #5B616B">O histórico aparece aqui depois do primeiro pagamento.</p></sc-if>
+</div>
+<p style="margin: 0; font-size: 13px; line-height: 1.5; color: #5B616B">O pagamento é feito direto com a administração do clube (Pix, boleto, transferência ou outra forma combinada). Quando ela registra, a assinatura é estendida por um mês ou um ano e a confirmação chega na aba Administração.</p>
+</div>
+</sc-if>
+
+<!-- CLIENTES -->
+<sc-if value="{{is.clientes}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Clientes</h1>
+<p style="margin: 0; color: #5B616B">Cada compra registra o comprador aqui: contato, pedidos, total gasto e pontos. Pedido cancelado ou com Pix ainda não confirmado não conta.</p>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px">
+<sc-for list="{{customerKpis}}" as="k" hint-placeholder-count="3">
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; font-weight: 700; color: #5B616B">{{k.label}}</span><span style="font-weight: 800; font-size: 20px; font-variant-numeric: tabular-nums">{{k.value}}</span></div>
+</sc-for>
+</div>
+<input id="cli-busca" value="{{customerQuery}}" onChange="{{onCustomerQuery}}" placeholder="Buscar pelo nome ou e-mail" aria-label="Buscar cliente" style="height: 44px; max-width: 360px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A">
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; overflow-x: auto">
+<table style="width: 100%; min-width: 760px; border-collapse: collapse; font-size: 14px">
+<thead><tr style="text-align: left; color: #5B616B; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em"><th style="padding: 12px 16px">Cliente</th><th style="padding: 12px 8px">Pedidos</th><th style="padding: 12px 8px">Total gasto</th><th style="padding: 12px 8px">Primeira / última compra</th><th style="padding: 12px 8px">Pontos</th><th style="padding: 12px 16px">Último endereço de entrega</th></tr></thead>
+<tbody>
+<sc-for list="{{customerRows}}" as="c" hint-placeholder-count="3">
+<tr style="border-top: 1px solid #ECEDE8"><td style="padding: 12px 16px"><span style="font-weight: 700">{{c.name}}</span><br><span style="font-size: 12px; color: #5B616B">{{c.contact}}</span></td><td style="padding: 12px 8px">{{c.orders}}</td><td style="padding: 12px 8px; font-weight: 700">{{c.total}}</td><td style="padding: 12px 8px; color: #5B616B">{{c.dates}}</td><td style="padding: 12px 8px">{{c.points}}</td><td style="padding: 12px 16px; color: #5B616B">{{c.address}}</td></tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<sc-if value="{{noCustomers}}" hint-placeholder-val="{{ false }}"><p style="margin: 0; color: #5B616B">{{noCustomersText}}</p></sc-if>
+</div>
+</sc-if>
+
+<!-- PROMOÇÕES (envio em massa, liberado pela administração) -->
+<sc-if value="{{is.promocoes}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Promoções</h1>
+<p style="margin: 0; color: #5B616B">Envie uma promoção, um bônus ou um aviso para todos os clientes da loja de uma vez. Cada cliente recebe na conversa com a loja, no app. Até 3 envios a cada 24 horas.</p>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px; max-width: 640px">
+<div role="group" aria-label="Tipo de envio" style="display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{bcKinds}}" as="k" hint-placeholder-count="3">
+<button onClick="{{k.pick}}" style="height: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid {{k.bd}}; background: {{k.bg}}; color: {{k.fg}}; font-weight: 700; font-size: 13px">{{k.label}}</button>
+</sc-for>
+</div>
+<label for="bc-titulo" style="font-size: 13px; font-weight: 700; color: #5B616B">Título</label>
+<input id="bc-titulo" maxlength="80" value="{{bcTitle}}" onChange="{{onBcTitle}}" placeholder="Ex.: Semana do lenço" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A">
+<label for="bc-texto" style="font-size: 13px; font-weight: 700; color: #5B616B">Mensagem</label>
+<textarea id="bc-texto" maxlength="1000" rows="4" value="{{bcBody}}" onChange="{{onBcBody}}" placeholder="Ex.: 20% em todos os lenços até domingo." style="border: 1px solid #C9CBC4; border-radius: 10px; padding: 10px 12px; font-size: 15px; font-family: inherit; color: #15171A; resize: vertical"></textarea>
+<span style="font-size: 12px; color: #5B616B">{{bcCount}}</span>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<label style="height: 40px; padding: 0 14px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #15171A; font-weight: 700; font-size: 14px; display: inline-flex; align-items: center; position: relative; cursor: pointer">{{bcImageLabel}}<input id="bc-foto" type="file" accept="image/*" onChange="{{onBcPhoto}}" style="position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden"></label>
+<sc-if value="{{bcHasImage}}" hint-placeholder-val="{{ false }}"><img src="{{bcPreview}}" alt="Imagem do envio" style="height: 56px; border-radius: 8px; border: 1px solid #DCDDD7"><button onClick="{{bcRemoveImage}}" style="height: 36px; padding: 0 12px; border: 1px solid #DCDDD7; border-radius: 10px; background: #FFFFFF; color: #15171A; font-weight: 700; font-size: 13px">Tirar imagem</button></sc-if>
+</div>
+<sc-if value="{{bcNotConfirming}}" hint-placeholder-val="{{ true }}">
+<button onClick="{{bcAsk}}" disabled="{{bcBlocked}}" style="align-self: flex-start; height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">{{bcSendLabel}}</button>
+</sc-if>
+<sc-if value="{{bcConfirming}}" hint-placeholder-val="{{ false }}">
+<div style="background: #FFF4E5; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 14px; font-weight: 700; color: #15171A">{{bcConfirmText}}</span>
+<div style="display: flex; gap: 8px">
+<button onClick="{{bcSend}}" disabled="{{busy}}" style="height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Confirmar envio</button>
+<button onClick="{{bcCancel}}" style="height: 44px; padding: 0 16px; border: 1px solid #DCDDD7; border-radius: 12px; background: #FFFFFF; color: #15171A; font-weight: 700">Cancelar</button>
+</div>
+</div>
+</sc-if>
+</div>
+<h2 style="margin: 8px 0 0; font-size: 18px; font-weight: 800">Enviados</h2>
+<sc-if value="{{bcNoHistory}}" hint-placeholder-val="{{ false }}"><p style="margin: 0; color: #5B616B">Nenhum envio ainda.</p></sc-if>
+<sc-for list="{{bcHistory}}" as="b" hint-placeholder-count="2">
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; max-width: 640px">
+<span style="font-size: 12px; font-weight: 700; color: #5B616B">{{b.meta}}</span>
+<span style="font-weight: 800">{{b.title}}</span>
+<span style="font-size: 14px; color: #3D4148; white-space: pre-line">{{b.body}}</span>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<!-- RELATÓRIOS -->
+<sc-if value="{{is.relatorios}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Relatório de vendas</h1>
+<span style="font-size: 14px; color: #5B616B">{{reportRange}}</span>
+</div>
+<button onClick="{{downloadReport}}" disabled="{{busy}}" style="height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Baixar relatório (planilha)</button>
+</div>
+<div role="group" aria-label="Agrupar por" style="display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{reportPeriods}}" as="p" hint-placeholder-count="5">
+<button onClick="{{p.pick}}" style="height: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid {{p.bd}}; background: {{p.bg}}; color: {{p.fg}}; font-weight: 700; font-size: 13px">{{p.label}}</button>
+</sc-for>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
+<sc-for list="{{reportKpis}}" as="k" hint-placeholder-count="4">
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; font-weight: 700; color: #5B616B">{{k.label}}</span><span style="font-weight: 800; font-size: 20px; font-variant-numeric: tabular-nums">{{k.value}}</span></div>
+</sc-for>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; overflow-x: auto">
+<table style="width: 100%; min-width: 760px; border-collapse: collapse; font-size: 14px">
+<thead><tr style="text-align: left; color: #5B616B; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em"><th style="padding: 12px 16px">Período</th><th style="padding: 12px 8px">Vendas</th><th style="padding: 12px 8px; width: 28%">Total</th><th style="padding: 12px 8px">Pedidos</th><th style="padding: 12px 8px">Ticket médio</th><th style="padding: 12px 8px">Itens</th><th style="padding: 12px 8px">Clientes</th><th style="padding: 12px 16px">Cancelados</th></tr></thead>
+<tbody>
+<sc-for list="{{reportRows}}" as="r" hint-placeholder-count="6">
+<tr style="border-top: 1px solid #ECEDE8"><td style="padding: 10px 16px"><span style="font-weight: 700">{{r.label}}</span><br><span style="font-size: 12px; color: #5B616B">{{r.dates}}</span></td><td style="padding: 10px 8px; font-weight: 800; font-variant-numeric: tabular-nums">{{r.total}}</td><td style="padding: 10px 8px"><div style="height: 10px; border-radius: 999px; background: #ECEDE8; overflow: hidden"><div style="height: 10px; width: {{r.pct}}; background: #1E5B48"></div></div><span style="font-size: 12px; color: #5B616B">{{r.split}}</span></td><td style="padding: 10px 8px">{{r.orders}}</td><td style="padding: 10px 8px">{{r.ticket}}</td><td style="padding: 10px 8px">{{r.items}}</td><td style="padding: 10px 8px">{{r.buyers}}</td><td style="padding: 10px 16px; color: #5B616B">{{r.cancelled}}</td></tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<p style="margin: 0; font-size: 12px; color: #5B616B">Conta como venda o pedido pago, confirmado ou em andamento. Pedido cancelado aparece só na coluna Cancelados. Datas no horário de Brasília.</p>
+</div>
+</sc-if>
+
+<!-- DADOS DA LOJA -->
+<sc-if value="{{is.dados}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Dados da loja</h1>
+<p style="margin: 0; color: #5B616B">Nome, contatos, endereço e horário que aparecem na vitrine do app. As alterações valem na hora e ficam registradas para a administração do clube.</p>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 20px; display: flex; flex-wrap: wrap; gap: 14px; max-width: 760px">
+<sc-for list="{{storeInfoFields}}" as="f" hint-placeholder-count="6">
+<label style="flex: {{f.flex}}; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">{{f.label}}<input id="{{f.id}}" type="{{f.type}}" value="{{f.value}}" onChange="{{f.change}}" placeholder="{{f.ph}}" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A; font-weight: 400"></label>
+</sc-for>
+<div style="flex: 1 1 100%; display: flex; gap: 8px">
+<button onClick="{{saveStoreInfo}}" disabled="{{busy}}" style="height: 44px; padding: 0 18px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Salvar dados</button>
+<sc-if value="{{storeInfoDirty}}" hint-placeholder-val="{{ false }}"><button onClick="{{resetStoreInfo}}" style="height: 44px; padding: 0 16px; border: 1px solid #DCDDD7; border-radius: 12px; background: #FFFFFF; color: #15171A; font-weight: 700">Desfazer</button></sc-if>
+</div>
+</div>
+</div>
+</sc-if>
+
+<!-- CONVITES -->
+<sc-if value="{{is.convites}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Convites</h1>
+<p style="margin: 0; color: #5B616B">Um convite da loja dá acesso ao {{groupName}} inteiro. Ele é permanente e sem limite de usos: vale até você revogar.</p>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-weight: 800">Pedidos de convite pelo app</span>
+<span style="font-size: 13px; color: #5B616B">Visitantes que viram a loja no app e pediram convite. Aprovado, a pessoa entra com o próprio e-mail (chega um código) e já pode comprar.</span>
+</div>
+<sc-if value="{{noRequests}}" hint-placeholder-val="{{ false }}"><p style="margin: 0; font-size: 14px; color: #5B616B">Nenhum pedido ainda.</p></sc-if>
+<sc-for list="{{requestRows}}" as="q" hint-placeholder-count="2">
+<div style="border-top: 1px solid #ECEDE8; padding-top: 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px">
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+<span style="font-weight: 800">{{q.name}}</span>
+<span style="font-size: 13px; color: #5B616B">{{q.contact}}</span>
+<span style="font-size: 12px; font-weight: 700; color: {{q.statusColor}}">{{q.statusLabel}}</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-if value="{{q.pending}}" hint-placeholder-val="{{ true }}">
+<button onClick="{{q.refuse}}" disabled="{{busy}}" style="height: 40px; padding: 0 14px; border: 1px solid #DCDDD7; border-radius: 10px; background: #FFFFFF; color: #A3262A; font-weight: 700">Recusar</button>
+<button onClick="{{q.approve}}" disabled="{{busy}}" style="height: 40px; padding: 0 14px; border: 0; border-radius: 10px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Aprovar</button>
+</sc-if>
+<sc-if value="{{q.approved}}" hint-placeholder-val="{{ false }}">
+<a href="{{q.whatsapp}}" target="_blank" rel="noopener" style="height: 40px; padding: 0 14px; border: 1px solid #1E5B48; border-radius: 10px; background: #FFFFFF; color: #1E5B48; font-weight: 700; font-size: 14px; text-decoration: none; display: inline-flex; align-items: center">Avisar pelo WhatsApp</a>
+</sc-if>
+</div>
+</div>
+</sc-for>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 16px">
+<span style="font-weight: 800">Novo convite</span>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px">
+<sc-for list="{{inviteGroups}}" as="g" hint-placeholder-count="4">
+<div role="group" aria-label="{{g.label}}" style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 13px; font-weight: 700; color: #5B616B">{{g.label}}</span>
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{g.opts}}" as="o" hint-placeholder-count="3">
+<button onClick="{{o.pick}}" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid {{o.bd}}; background: {{o.bg}}; color: {{o.fg}}; font-weight: 700; font-size: 13px">{{o.label}}</button>
+</sc-for>
+</div>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{inviteNeedsEmail}}" hint-placeholder-val="{{ false }}">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B; max-width: 360px">E-mail da pessoa convidada<input id="conv-email" type="email" autocapitalize="none" value="{{inv.email}}" onChange="{{onInviteEmail}}" placeholder="pessoa@email.com" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+</sc-if>
+<button onClick="{{createInvite}}" disabled="{{busy}}" style="align-self: flex-start; height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Gerar convite</button>
+</div>
+<sc-if value="{{hasPending}}" hint-placeholder-val="{{ false }}">
+<div style="background: #FBEADF; border-radius: 16px; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-weight: 800; color: #6B3008">Entradas aguardando aprovação</span>
+<sc-for list="{{pending}}" as="p" hint-placeholder-count="2">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between; background: #FFFFFF; border-radius: 12px; padding: 10px 14px">
+<span><b>{{p.name}}</b> <span style="color: #5B616B; font-size: 13px">· {{p.contact}} · convite {{p.code}}</span></span>
+<div style="display: flex; gap: 8px"><button onClick="{{p.reject}}" style="height: 36px; padding: 0 12px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #A3262A; font-weight: 700">Recusar</button><button onClick="{{p.approve}}" style="height: 36px; padding: 0 12px; border: 0; border-radius: 10px; background: #1E5B48; color: #FFFFFF; font-weight: 700">Aprovar</button></div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; overflow-x: auto">
+<table style="width: 100%; min-width: 680px; border-collapse: collapse; font-size: 14px">
+<thead><tr style="text-align: left; color: #5B616B; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em"><th style="padding: 12px 16px">Convite</th><th style="padding: 12px 8px">Tipo</th><th style="padding: 12px 8px">Usos</th><th style="padding: 12px 8px">Validade</th><th style="padding: 12px 8px">Entrada</th><th style="padding: 12px 16px; text-align: right">Ação</th></tr></thead>
+<tbody>
+<sc-for list="{{inviteRows}}" as="i" hint-placeholder-count="3">
+<tr style="border-top: 1px solid #ECEDE8; color: {{i.rowColor}}">
+<td style="padding: 12px 16px; font-weight: 800; letter-spacing: 0.04em">{{i.code}}</td>
+<td style="padding: 12px 8px">{{i.kind}}</td>
+<td style="padding: 12px 8px">{{i.uses}}</td>
+<td style="padding: 12px 8px">{{i.until}}</td>
+<td style="padding: 12px 8px">{{i.approval}}</td>
+<td style="padding: 12px 16px; text-align: right">
+<sc-if value="{{i.active}}" hint-placeholder-val="{{ true }}"><button onClick="{{i.revoke}}" style="height: 36px; padding: 0 12px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #A3262A; font-weight: 700; font-size: 13px">Revogar</button></sc-if>
+<sc-if value="{{i.inactive}}" hint-placeholder-val="{{ false }}"><span style="font-size: 13px">{{i.inactiveLabel}}</span></sc-if>
+</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</div>
+</sc-if>
+
+<!-- CUPONS -->
+<sc-if value="{{is.cupons}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Cupons</h1>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<span style="font-weight: 800">Novo cupom</span>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Código<input id="c-codigo" autocapitalize="characters" autocorrect="off" spellcheck="false" value="{{cp.code}}" onChange="{{onCpCode}}" placeholder="VERAO15" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Tipo<select value="{{cp.kind}}" onChange="{{onCpKind}}" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 10px; font-size: 15px; color: #15171A; background: #FFFFFF"><option value="percentual">Percentual (%)</option><option value="fixo">Valor fixo (R$)</option></select></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Desconto<input id="c-valor" inputmode="decimal" value="{{cp.value}}" onChange="{{onCpValue}}" placeholder="10" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Compra mínima (R$)<input id="c-min" inputmode="decimal" value="{{cp.min}}" onChange="{{onCpMin}}" placeholder="0" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Validade (dias)<input id="c-dias" inputmode="numeric" value="{{cp.days}}" onChange="{{onCpDays}}" placeholder="30" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Limite de usos<input id="c-limite" inputmode="numeric" value="{{cp.limit}}" onChange="{{onCpLimit}}" placeholder="sem limite" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+</div>
+<button onClick="{{createCoupon}}" disabled="{{busy}}" style="align-self: flex-start; height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Criar cupom</button>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px">
+<sc-for list="{{coupons}}" as="p" hint-placeholder-count="2">
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+<span style="font-weight: 800; font-size: 17px; letter-spacing: 0.03em">{{p.name}}</span>
+<span style="font-size: 12px; font-weight: 700; border-radius: 999px; padding: 4px 10px; background: {{p.badgeBg}}; color: {{p.badgeFg}}">{{p.statusLabel}}</span>
+</div>
+<span style="font-size: 22px; font-weight: 800; color: #A04A12">{{p.value}}</span>
+<sc-for list="{{p.rules}}" as="r" hint-placeholder-count="2"><span style="font-size: 13px; color: #5B616B">{{r}}</span></sc-for>
+<div style="height: 6px; border-radius: 999px; background: #ECEDE8; overflow: hidden"><div style="height: 6px; width: {{p.pct}}; background: #A04A12"></div></div>
+<span style="font-size: 12px; color: #5B616B">{{p.usage}}</span>
+<button onClick="{{p.toggle}}" style="align-self: flex-start; height: 36px; padding: 0 12px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #15171A; font-weight: 700; font-size: 13px">{{p.toggleLabel}}</button>
+</div>
+</sc-for>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 16px 20px">
+<label style="display: flex; align-items: center; gap: 12px; min-height: 44px; font-weight: 700"><input type="checkbox" checked="{{combine}}" onChange="{{toggleCombine}}" style="width: 20px; height: 20px; accent-color: #1E5B48">Permitir cupom e resgate de pontos no mesmo pedido</label>
+<p style="margin: 4px 0 0 32px; font-size: 13px; color: #5B616B">O comprador sempre vê o desconto e o preço final antes de pagar.</p>
+</div>
+</div>
+</sc-if>
+
+<!-- FIDELIDADE -->
+<sc-if value="{{is.fidelidade}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Cartão fidelidade</h1>
+<button onClick="{{toggleLoyaltyEdit}}" style="height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">{{loyaltyEditLabel}}</button>
+</div>
+<sc-if value="{{editingLoyalty}}" hint-placeholder-val="{{ false }}">
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 20px; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end">
+<label style="flex: 1 1 150px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Pontos por R$ 1<input id="f-acumulo" inputmode="numeric" value="{{lp.perReal}}" onChange="{{onLpPerReal}}" placeholder="1" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="flex: 1 1 150px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Pontos para resgatar<input id="f-resgate" inputmode="numeric" value="{{lp.points}}" onChange="{{onLpPoints}}" placeholder="100" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="flex: 1 1 150px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Valor do resgate (R$)<input id="f-valor" inputmode="decimal" value="{{lp.value}}" onChange="{{onLpValue}}" placeholder="10,00" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="flex: 1 1 150px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Validade (meses)<input id="f-validade" inputmode="numeric" value="{{lp.months}}" onChange="{{onLpMonths}}" placeholder="12" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<button onClick="{{saveLoyalty}}" disabled="{{busy}}" style="height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Salvar regras</button>
+<p style="margin: 0; flex-basis: 100%; font-size: 12px; color: #5B616B">{{lpPreview}} As regras novas valem para os próximos pedidos; os pontos já ganhos continuam no saldo dos membros.</p>
+</div>
+</sc-if>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px">
+<sc-for list="{{loyaltyRules}}" as="r" hint-placeholder-count="4">
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; font-weight: 700; color: #5B616B">{{r.label}}</span><span style="font-weight: 800">{{r.value}}</span></div>
+</sc-for>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<span style="font-weight: 800">Ajuste manual</span>
+<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end">
+<div style="flex: 1 1 100%; display: flex; flex-direction: column; gap: 6px">
+<label for="aj-busca" style="font-size: 13px; font-weight: 700; color: #5B616B">Membro: {{adjMemberName}}</label>
+<input id="aj-busca" value="{{memberQuery}}" onChange="{{onMemberQuery}}" placeholder="Buscar pelo nome ou e-mail" style="height: 44px; max-width: 360px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A">
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{memberOptions}}" as="m" hint-placeholder-count="3">
+<button onClick="{{m.pick}}" style="height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid {{m.bd}}; background: {{m.bg}}; color: {{m.fg}}; font-weight: 700; font-size: 13px">{{m.name}}</button>
+</sc-for>
+</div>
+</div>
+<label style="flex: 0 1 120px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Pontos (+/−)<input id="aj-pontos" value="{{adj.pts}}" onChange="{{onAdjPts}}" placeholder="20" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="flex: 2 1 220px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Motivo (obrigatório)<input id="aj-motivo" value="{{adj.reason}}" onChange="{{onAdjReason}}" placeholder="Ex.: compensação por atraso" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<button onClick="{{saveAdj}}" disabled="{{busy}}" style="height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Registrar ajuste</button>
+</div>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; overflow-x: auto">
+<table style="width: 100%; min-width: 640px; border-collapse: collapse; font-size: 14px">
+<thead><tr style="text-align: left; color: #5B616B; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em"><th style="padding: 12px 16px">Data</th><th style="padding: 12px 8px">Membro</th><th style="padding: 12px 8px">Movimento</th><th style="padding: 12px 8px">Origem</th><th style="padding: 12px 16px; text-align: right">Pontos</th></tr></thead>
+<tbody>
+<sc-for list="{{ledgerRows}}" as="l" hint-placeholder-count="4">
+<tr style="border-top: 1px solid #ECEDE8"><td style="padding: 12px 16px">{{l.date}}</td><td style="padding: 12px 8px">{{l.member}}</td><td style="padding: 12px 8px">{{l.kind}}</td><td style="padding: 12px 8px; color: #5B616B">{{l.origin}}</td><td style="padding: 12px 16px; text-align: right; font-weight: 800; color: {{l.color}}">{{l.ptsLabel}}</td></tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<p style="margin: 0; font-size: 13px; color: #5B616B">Cada pedido gera no máximo um crédito; estornos e ajustes ficam registrados com autor e motivo.</p>
+</div>
+</sc-if>
+
+<!-- PAGAMENTOS -->
+<sc-if value="{{is.pagamentos}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Pagamentos</h1>
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div style="flex: 1 1 280px; background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 13px; font-weight: 700; color: #5B616B">Chave Pix da loja</span>
+<span style="font-size: 13px; color: {{pixColor}}; font-weight: 700">{{pixStatus}}</span>
+<div role="group" aria-label="Tipo da chave" style="display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{pixTypes}}" as="t" hint-placeholder-count="4">
+<button onClick="{{t.pick}}" style="height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid {{t.bd}}; background: {{t.bg}}; color: {{t.fg}}; font-weight: 700; font-size: 13px">{{t.label}}</button>
+</sc-for>
+</div>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Chave<input id="pix-chave" autocapitalize="none" autocomplete="off" value="{{pixForm.key}}" onChange="{{onPixKey}}" placeholder="{{pixPlaceholder}}" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<label style="flex: 2 1 180px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Nome de quem recebe<input id="pix-nome" value="{{pixForm.name}}" onChange="{{onPixName}}" placeholder="Como aparece no banco" maxlength="25" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="flex: 1 1 120px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Cidade<input id="pix-cidade" value="{{pixForm.city}}" onChange="{{onPixCity}}" placeholder="São Paulo" maxlength="15" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<button onClick="{{savePix}}" disabled="{{busy}}" style="height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Salvar chave Pix</button>
+<sc-if value="{{hasPixKey}}" hint-placeholder-val="{{ false }}"><button onClick="{{removePix}}" disabled="{{busy}}" style="height: 44px; padding: 0 14px; border: 1px solid #C9CBC4; border-radius: 12px; background: #FFFFFF; color: #A3262A; font-weight: 700">Remover chave</button></sc-if>
+</div>
+<span style="font-size: 12px; color: #5B616B">O comprador paga direto nesta chave, pelo QR code ou pelo copia e cola com o valor do pedido. Você confere o extrato e confirma o Pix em Pedidos. A administração do clube precisa liberar o pagamento online para o Pix aparecer no app.</span>
+</div>
+<div style="flex: 1 1 280px; background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 13px; font-weight: 700; color: #5B616B">Meios aceitos</span>
+<sc-for list="{{payMethods}}" as="m" hint-placeholder-count="2">
+<label style="display: flex; align-items: center; gap: 12px; min-height: 44px; font-weight: 700"><input type="checkbox" checked="{{m.on}}" onChange="{{m.toggle}}" style="width: 20px; height: 20px; accent-color: #1E5B48">{{m.label}}</label>
+</sc-for>
+<span style="font-size: 12px; color: #5B616B">Pagamento na loja: o pedido entra confirmado e você recebe na retirada ou na entrega, fora do app.</span>
+</div>
+<div style="flex: 1 1 280px; background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 13px; font-weight: 700; color: #5B616B">Entrega</span>
+<span style="font-size: 13px; color: {{deliveryColor}}; font-weight: 700">{{deliveryStatus}}</span>
+<sc-if value="{{deliveryEnabled}}" hint-placeholder-val="{{ false }}">
+<label style="display: flex; align-items: center; gap: 12px; min-height: 44px; font-weight: 700"><input type="checkbox" checked="{{deliveryOn}}" onChange="{{toggleDelivery}}" style="width: 20px; height: 20px; accent-color: #1E5B48">Oferecer entrega no app</label>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end">
+<label style="flex: 1 1 140px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Taxa de entrega (R$)<input id="taxa-entrega" inputmode="decimal" value="{{feeDraft}}" onChange="{{onFee}}" placeholder="0,00 = a combinar" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<button onClick="{{saveFee}}" disabled="{{busy}}" style="height: 44px; padding: 0 14px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Salvar taxa</button>
+</div>
+</sc-if>
+<span style="font-size: 12px; color: #5B616B">O comprador informa o endereço ou o local, e vocês combinam a forma, o local e o horário da entrega pela conversa. Taxa zero aparece no app como "a combinar".</span>
+</div>
+</div>
+<h2 style="margin: 4px 0 0; font-size: 18px; font-weight: 800">Conciliação</h2>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; overflow-x: auto">
+<table style="width: 100%; min-width: 640px; border-collapse: collapse; font-size: 14px">
+<thead><tr style="text-align: left; color: #5B616B; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em"><th style="padding: 12px 16px">Pedido</th><th style="padding: 12px 8px">Transação</th><th style="padding: 12px 8px">Forma</th><th style="padding: 12px 8px">Valor</th><th style="padding: 12px 16px">Situação</th></tr></thead>
+<tbody>
+<sc-for list="{{recon}}" as="r" hint-placeholder-count="4">
+<tr style="border-top: 1px solid #ECEDE8"><td style="padding: 12px 16px; font-weight: 800">#{{r.id}}</td><td style="padding: 12px 8px; color: #5B616B; font-family: ui-monospace, monospace; font-size: 13px">{{r.tx}}</td><td style="padding: 12px 8px">{{r.provider}}</td><td style="padding: 12px 8px; font-weight: 700">{{r.totalLabel}}</td><td style="padding: 12px 16px; white-space: nowrap"><span style="font-size: 12px; font-weight: 700; border-radius: 999px; padding: 4px 10px; background: {{r.bg}}; color: {{r.fg}}">{{r.label}}</span><sc-if value="{{r.canRefund}}" hint-placeholder-val="{{ false }}"><button onClick="{{r.refund}}" disabled="{{busy}}" style="height: 32px; padding: 0 10px; margin-left: 8px; border: 1px solid #C9CBC4; border-radius: 8px; background: #FFFFFF; color: #15171A; font-weight: 700; font-size: 12px">Marcar devolvido</button></sc-if></td></tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</div>
+</sc-if>
+
+<!-- EQUIPE -->
+<sc-if value="{{is.equipe}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Equipe e permissões</h1>
+<sc-for list="{{staffCards}}" as="s" hint-placeholder-count="2">
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px">
+<span><b>{{s.name}}</b> <span style="color: #5B616B; font-size: 13px">· {{s.contact}} · {{s.roleLabel}}</span></span>
+<sc-if value="{{s.removable}}" hint-placeholder-val="{{ false }}"><button onClick="{{s.remove}}" style="height: 36px; padding: 0 12px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #A3262A; font-weight: 700; font-size: 13px">Remover da equipe</button></sc-if>
+</div>
+<sc-if value="{{s.isAtendente}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-wrap: wrap; gap: 4px 20px">
+<sc-for list="{{s.perms}}" as="p" hint-placeholder-count="4">
+<label style="display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: 14px"><input type="checkbox" checked="{{p.on}}" onChange="{{p.toggle}}" style="width: 18px; height: 18px; accent-color: #1E5B48">{{p.label}}</label>
+</sc-for>
+</div>
+</sc-if>
+</div>
+</sc-for>
+<p style="margin: 0; font-size: 13px; color: #5B616B">Clientes, relatórios e editar catálogo, cupons, fidelidade, pagamentos, convites e equipe são exclusivos do gestor.</p>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 20px; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end">
+<label style="flex: 2 1 260px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">E-mail da pessoa<input id="eq-email" type="email" autocapitalize="none" value="{{staffEmail}}" onChange="{{onStaffEmail}}" placeholder="pessoa@loja.com" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; color: #15171A"></label>
+<label style="flex: 1 1 160px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #5B616B">Papel<select value="{{staffRole}}" onChange="{{onStaffRole}}" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 10px; font-size: 15px; color: #15171A; background: #FFFFFF"><option value="atendente">Atendente</option><option value="gestor">Gestor</option></select></label>
+<button onClick="{{addStaff}}" disabled="{{busy}}" style="height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Adicionar à equipe</button>
+<p style="margin: 0; flex-basis: 100%; font-size: 12px; color: #5B616B">A pessoa precisa entrar uma vez neste painel com o e-mail dela antes de ser adicionada.</p>
+</div>
+</div>
+</sc-if>
+
+</main>
+</div>
+</div>
+</sc-if>
+
+<!-- como instalar, quando o navegador não oferece o botão direto -->
+<sc-if value="{{hasInstallHelp}}" hint-placeholder-val="{{ false }}">
+<div id="ajuda-instalar" role="dialog" aria-label="Instalar como app" style="position: fixed; left: 16px; bottom: 16px; z-index: 50; max-width: min(420px, calc(100vw - 32px)); box-sizing: border-box; background: #FFFFFF; color: #15171A; border: 1px solid #DCDDD7; border-radius: 16px; padding: 16px 18px; box-shadow: 0 12px 32px rgba(0,0,0,.18); display: flex; flex-direction: column; gap: 10px">
+<span style="font-weight: 800">Instalar como app</span>
+<span style="font-size: 14px; line-height: 1.5">{{installHelp}}</span>
+<span style="font-size: 12px; line-height: 1.5; color: #5B616B">Depois de instalado, o painel abre em janela própria, com ícone na área de trabalho ou no Dock, sem precisar procurar o endereço.</span>
+<button onClick="{{closeInstallHelp}}" style="align-self: flex-end; height: 38px; padding: 0 14px; border: 0; border-radius: 10px; background: #1E5B48; color: #FFFFFF; font-weight: 800; font-size: 13px">Entendi</button>
+</div>
+</sc-if>
+<sc-if value="{{hasToast}}" hint-placeholder-val="{{ false }}">
+<div role="status" style="position: fixed; right: 24px; bottom: 24px; left: 24px; margin-left: auto; max-width: 420px; background: #15171A; color: #FFFFFF; border-radius: 12px; padding: 12px 16px; font-size: 14px; font-weight: 600">{{toast}}</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":900}}'>
+// Painel da loja ligado ao Supabase (config.js). Permissões valem no servidor; aqui só se esconde o que
+// o papel não usa.
+var CFG = window.CLUBE_CONFIG || {};
+var sb = window.supabase.createClient(CFG.url, CFG.chave, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'clube-painel-loja' } });
+var GREEN = '#1E5B48', INK = '#15171A', MUTED = '#5B616B', LINE = '#C9CBC4', PROMO = '#A04A12', RED = '#A3262A';
+function brl(c) { return (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
+function dia(d) { var x = new Date(d); return String(x.getDate()).padStart(2, '0') + '/' + String(x.getMonth() + 1).padStart(2, '0'); }
+function hora(d) { var x = new Date(d); return dia(d) + ' ' + String(x.getHours()).padStart(2, '0') + ':' + String(x.getMinutes()).padStart(2, '0'); }
+function msgErro(e) { return (e && (e.message || e.error)) || 'Algo deu errado. Tente de novo.'; }
+function centavos(txt) { var n = parseFloat(String(txt || '').replace(/\./g, '').replace(',', '.')); return isNaN(n) ? NaN : Math.round(n * 100); }
+function pill(on) { return { bg: on ? INK : '#FFFFFF', fg: on ? '#FFFFFF' : INK, bd: on ? INK : LINE }; }
+var STATUS = {
+  aguardando_pagamento: ['Aguardando pagamento', '#ECEDE8', MUTED], pago: ['Pago · a preparar', '#FBEADF', '#6B3008'],
+  confirmado: ['Confirmado · a preparar', '#FBEADF', '#6B3008'],
+  em_preparacao: ['Em preparação', '#E3EEE9', '#123B2E'], pronto: ['Pronto para retirada', '#E3EEE9', '#123B2E'],
+  enviado: ['Enviado', '#E3EEE9', '#123B2E'], concluido: ['Concluído', '#ECEDE8', MUTED],
+  cancelado: ['Cancelado', '#F8E3E3', '#7A1C1F'], reembolsado: ['Cancelado · reembolsado', '#F8E3E3', '#7A1C1F']
+};
+function PAYM(o) { return o.pay_method === 'pix' ? 'Pix direto' : o.pay_method === 'cartao' ? 'Cartão' : o.fulfil === 'entrega' ? 'Paga na entrega' : 'Paga na loja'; }
+// o relatório começa depois do 1º dia de 11 meses atrás quando a loja foi incluída há menos tempo
+function desdeInclusao(rel) {
+  if (!rel.length) return false;
+  var h = new Date(), ini = new Date(h.getFullYear(), h.getMonth() - 11, 1);
+  var iso = ini.getFullYear() + '-' + String(ini.getMonth() + 1).padStart(2, '0') + '-01';
+  return String(rel[0].period_start) > iso;
+}
+// dados da loja que o gestor edita: [campo, rótulo, exemplo, flex, tipo]
+var STORE_INFO = [['name', 'Nome da loja', '', '2 1 240px', 'text'], ['category', 'Categoria', 'Ex.: Moda', '1 1 180px', 'text'],
+  ['address', 'Endereço', 'Rua, número, bairro, cidade', '3 1 320px', 'text'], ['phone', 'Telefone', '(11) 3333-4444', '1 1 160px', 'tel'],
+  ['whatsapp', 'WhatsApp', '(11) 98888-7777', '1 1 160px', 'tel'], ['email', 'E-mail da loja', 'contato@loja.com', '2 1 220px', 'email'],
+  ['instagram', 'Instagram', '@loja', '1 1 160px', 'text'], ['website', 'Site', 'loja.com.br', '1 1 180px', 'url'],
+  ['document', 'CNPJ ou CPF', '00.000.000/0001-00', '1 1 200px', 'text'], ['hours', 'Horário', 'Seg a sáb, 10h às 19h', '2 1 240px', 'text'],
+  ['about', 'Sobre a loja', 'Uma frase que aparece na vitrine', '3 1 320px', 'text']];
+var BC_KINDS = [['promocao', 'Promoção'], ['bonus', 'Bônus'], ['aviso', 'Aviso']];
+var REPORT_PERIODS = [['quinzenal', 'Quinzenal'], ['mensal', 'Mensal'], ['trimestral', 'Trimestral'], ['semestral', 'Semestral'], ['anual', 'Anual']];
+// data "aaaa-mm-dd" do banco em dd/mm/aaaa, sem passar por fuso horário
+// data completa no horário de Brasília (dd/mm/aaaa)
+function dataBR(d) { return new Date(d).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }); }
+var METODOS = { pix: 'Pix', boleto: 'Boleto', transferencia: 'Transferência', dinheiro: 'Dinheiro', cartao: 'Cartão', outro: 'Outra forma' };
+function diaAno(d) { var p = String(d).slice(0, 10).split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
+var PIX_TYPES = [['cpf_cnpj', 'CPF/CNPJ', '000.000.000-00'], ['celular', 'Celular', '(11) 98888-7777'], ['email', 'E-mail', 'pix@loja.com'], ['aleatoria', 'Aleatória', 'chave aleatória do banco']];
+var KIND = { credito: 'Crédito', resgate: 'Resgate', estorno: 'Estorno', ajuste: 'Ajuste', bonus: 'Bônus' };
+var TABS = [
+  { key: 'pedidos', label: 'Pedidos', perm: 'orders' }, { key: 'mensagens', label: 'Mensagens', perm: 'chat' }, { key: 'administracao', label: 'Administração' }, { key: 'assinatura', label: 'Assinatura' },
+  { key: 'catalogo', label: 'Catálogo', perm: 'catalog' }, { key: 'clientes', label: 'Clientes' }, { key: 'relatorios', label: 'Relatórios' }, { key: 'promocoes', label: 'Promoções', module: 'broadcast_enabled' }, { key: 'convites', label: 'Convites' }, { key: 'cupons', label: 'Cupons' },
+  { key: 'fidelidade', label: 'Fidelidade' }, { key: 'pagamentos', label: 'Pagamentos' }, { key: 'dados', label: 'Dados da loja' }, { key: 'equipe', label: 'Equipe' }
+];
+var PERMS = [['orders', 'Ver pedidos'], ['status', 'Atualizar andamento'], ['chat', 'Atender conversas'], ['catalog', 'Ver catálogo']];
+var FORM0 = { name: '', desc: '', price: '', cat: '', variants: '', stock: '', sku: '', shipping: '', deadline: '', kind: 'produto', editId: null, photos: [] };
+// prazo para pagamento do produto (horas); vazio = padrão (Pix 24 h, na loja sem prazo); 0 = sem prazo
+var PRAZOS = [['', 'Padrão (Pix 24 horas · na loja sem prazo)'], ['2', '2 horas'], ['6', '6 horas'], ['12', '12 horas'], ['24', '24 horas'],
+  ['48', '48 horas'], ['72', '3 dias'], ['168', '7 dias'], ['0', 'Sem prazo']];
+// pedido ainda esperando pagamento e com prazo: quando vence (created_at + horas)
+function vencimento(o) {
+  var espera = o.pay_method === 'na_loja' ? ['confirmado', 'em_preparacao', 'pronto'].indexOf(o.status) >= 0 : o.status === 'aguardando_pagamento';
+  return espera && o.pay_deadline_hours ? new Date(new Date(o.created_at).getTime() + o.pay_deadline_hours * 3600000) : null;
+}
+function prazoDoForm(v) { return v === '' || v == null ? null : parseInt(v, 10); }
+// valor da entrega do produto: vazio usa a taxa geral da loja
+function freteDoForm(txt) {
+  if (String(txt || '').trim() === '') return null;
+  var v = centavos(txt);
+  if (isNaN(v) || v < 0) throw new Error('Valor da entrega inválido. Deixe vazio para usar a taxa geral da loja.');
+  return v;
+}
+var BUCKET = 'produtos';
+function reais(c) { return (c / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fundo(url, cor) { return url ? 'url("' + url + '") center / cover no-repeat, ' + cor : cor; }
+function caminhoDaFoto(url) { var i = String(url).indexOf('/object/public/' + BUCKET + '/'); return i < 0 ? null : decodeURIComponent(url.slice(i + 16 + BUCKET.length + 1)); }
+// reduz a foto para no máximo 1200 px e JPEG, para subir rápido mesmo do celular
+function reduzirFoto(file) {
+  return new Promise(function (ok, falha) {
+    var img = new Image(), url = URL.createObjectURL(file);
+    img.onload = function () {
+      var k = Math.min(1, 1200 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(function (b) { b ? ok(b) : falha(new Error('Não foi possível ler a foto.')); }, 'image/jpeg', 0.85);
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); falha(new Error('Arquivo não é uma imagem.')); };
+    img.src = url;
+  });
+}
+var CP0 = { code: '', kind: 'percentual', value: '', min: '', days: '30', limit: '' };
+
+class Component extends DCLogic {
+  initial() {
+    return {
+      screen: 'carregando', loadingText: 'Abrindo o painel…', busy: false, toast: '', live: false,
+      email: '', codeSent: false, otp: '', loginMsg: '',
+      me: null, staff: [], storeId: null, tab: 'pedidos', filter: 'todos',
+      store: null, group: null, orders: [], products: [], convs: [], thread: null, reply: '', adminMsgs: [], adminRead: 0, adminReply: '', billing: null, subPays: [],
+      invites: [], pending: [], members: [], coupons: [], program: null, ledger: [], payments: [], team: [],
+      showForm: false, form: FORM0, inv: { kind: 'codigo', approval: 'automatica', email: '' },
+      cp: CP0, adj: { member: '', pts: '', reason: '' }, memberQuery: '', staffEmail: '', staffRole: 'atendente',
+      sub: null, customers: [], customerQuery: '', feeDraft: null, imgUrls: {}, reportPeriod: 'mensal', report: [], broadcasts: [], requests: [], infoDraft: null, bc: { kind: 'promocao', title: '', body: '', blob: null, preview: '', confirming: false }, editingLoyalty: false, lp: { perReal: '', points: '', value: '', months: '' }
+    };
+  }
+  s() { return Object.assign(this.initial(), this.state || {}); }
+  flash(msg) {
+    var self = this;
+    this.setState({ toast: msg });
+    clearTimeout(this._t);
+    this._t = setTimeout(function () { self.setState({ toast: '' }); }, 3000);
+  }
+  componentDidMount() {
+    var self = this;
+    this.setState(this.initial()); this.boot();
+    this._inst = function () { self.setState({ instalarTick: Date.now() }); };
+    window.addEventListener('instalar-mudou', this._inst);
+  }
+  componentWillUnmount() { clearTimeout(this._t); clearInterval(this._poll); window.removeEventListener('instalar-mudou', this._inst); if (this._canal) sb.removeChannel(this._canal); }
+
+  async boot() {
+    var sess = (await sb.auth.getSession()).data.session;
+    if (!sess) { this.setState({ screen: 'entrar' }); return; }
+    await this.loadStaff();
+  }
+
+  async loadStaff() {
+    var u = (await sb.auth.getUser()).data.user;
+    if (!u) { this.setState({ screen: 'entrar' }); return; }
+    var r = await sb.from('store_staff').select('store_id, role, perms, stores(id, name, initials, color, status)').eq('user_id', u.id);
+    if (r.error) { this.flash(msgErro(r.error)); return; }
+    var staff = (r.data || []).filter(function (x) { return x.stores; });
+    var prof = await sb.from('profiles').select('name').eq('id', u.id).maybeSingle();
+    this.setState({ me: { id: u.id, email: u.email, name: (prof.data && prof.data.name) || u.email }, staff: staff });
+    if (!staff.length) { this.setState({ screen: 'semAcesso' }); return; }
+    var keep = staff.find((x) => x.store_id === this.s().storeId);
+    await this.openStore((keep || staff[0]).store_id);
+  }
+
+  myRole() { var s = this.s(); return s.staff.find(function (x) { return x.store_id === s.storeId; }) || { role: 'atendente', perms: {} }; }
+  can(perm) { var r = this.myRole(); return r.role === 'gestor' || !!(r.perms && r.perms[perm]); }
+
+  async openStore(id) {
+    this.setState({ storeId: id, screen: 'carregando', loadingText: 'Carregando a loja…' });
+    await this.loadAll();
+    this.setState({ screen: 'painel' });
+    this.listen();
+  }
+
+  async loadAll() {
+    var s = this.s(), id = s.storeId, gestor = this.myRole().role === 'gestor';
+    var q = [
+      sb.from('stores').select('*, groups(name)').eq('id', id).single(),
+      this.can('orders') ? sb.from('orders').select('*, profiles(name), order_items(name, variant_label, qty)').eq('store_id', id).order('id', { ascending: false }) : null,
+      this.can('catalog') ? sb.from('products').select('*, highlighted_today, product_variants(id, label, stock, position), product_history(change, at)').eq('store_id', id).order('created_at').order('name') : null,
+      this.can('chat') ? sb.from('conversations').select('id, buyer_id, profiles(name), messages(id, body, product_id, image_path, from_store, created_at)').eq('store_id', id) : null,
+      gestor ? sb.from('invites').select('*').eq('store_id', id).order('created_at', { ascending: false }) : null,
+      gestor ? sb.from('group_members').select('user_id, status, invite_id, profiles(name, contact), invites(code)') : null,
+      gestor ? sb.from('coupons').select('*').eq('store_id', id).order('code') : null,
+      gestor ? sb.from('loyalty_programs').select('*').eq('store_id', id).maybeSingle() : null,
+      gestor ? sb.from('loyalty_ledger').select('*, profiles(name)').eq('store_id', id).order('id', { ascending: false }) : null,
+      gestor ? sb.from('payments').select('*, orders!inner(store_id)').eq('orders.store_id', id).order('id', { ascending: false }) : null,
+      gestor ? sb.from('store_staff').select('user_id, role, perms, profiles(name, contact)').eq('store_id', id) : null,
+      sb.from('store_subscriptions').select('*').eq('store_id', id).maybeSingle(),
+      gestor ? sb.rpc('store_customers', { p_store: id }) : null,
+      gestor ? sb.rpc('store_sales_report', { p_store: id, p_period: s.reportPeriod }) : null,
+      gestor ? sb.from('store_broadcasts').select('*').eq('store_id', id).order('id', { ascending: false }).limit(30) : null,
+      gestor ? sb.from('invite_requests').select('*').eq('store_id', id).order('id', { ascending: false }).limit(100) : null,
+      gestor ? sb.from('store_admin_messages').select('*').eq('store_id', id).order('id') : null,
+      gestor ? sb.from('store_admin_reads').select('store_read_id').eq('store_id', id).maybeSingle() : null,
+      gestor ? sb.from('billing_settings').select('*').maybeSingle() : null,
+      gestor ? sb.from('store_subscription_payments').select('*').eq('store_id', id).order('id', { ascending: false }) : null
+    ];
+    var r = await Promise.all(q.map(function (x) { return x || Promise.resolve({ data: null }); }));
+    for (var i = 0; i < r.length; i++) if (r[i].error) { this.flash(msgErro(r[i].error)); }
+    var convs = (r[3].data || []).map(function (c) { c.messages.sort(function (a, b) { return a.id - b.id; }); return c; })
+      .sort(function (a, b) { var la = a.messages[a.messages.length - 1], lb = b.messages[b.messages.length - 1]; return (lb ? lb.id : 0) - (la ? la.id : 0); });
+    var members = r[5].data || [];
+    this.setState({
+      store: r[0].data, group: r[0].data && r[0].data.groups, orders: r[1].data || [],
+      products: (r[2].data || []).map(function (p) { p.product_variants.sort(function (a, b) { return a.position - b.position; }); return p; }),
+      convs: convs, thread: s.thread && convs.some(function (c) { return c.id === s.thread; }) ? s.thread : (convs[0] ? convs[0].id : null),
+      invites: r[4].data || [], pending: members.filter(function (m) { return m.status === 'pendente'; }),
+      members: members.filter(function (m) { return m.status === 'ativo'; }),
+      coupons: r[6].data || [], program: r[7].data, ledger: r[8].data || [], payments: r[9].data || [], team: r[10].data || [],
+      sub: r[11].data, customers: r[12].data || [], report: r[13].data || [], broadcasts: r[14].data || [], requests: r[15].data || [],
+      adminMsgs: r[16].data || [], adminRead: r[17].data ? r[17].data.store_read_id : 0, billing: r[18].data, subPays: r[19].data || []
+    });
+  }
+
+  listen() {
+    var self = this, id = this.s().storeId;
+    if (this._canal) sb.removeChannel(this._canal);
+    this._canal = sb.channel('loja-' + id)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: 'store_id=eq.' + id }, function (ev) {
+        var novo = ev.eventType === 'INSERT' || (ev.new && ev.new.status === 'pago' && !self.s().orders.some(function (o) { return o.id === ev.new.id && o.status === 'pago'; }));
+        var antes = self.s().orders.find(function (o) { return o.id === ev.new.id; });
+        var avisou = ev.new && ev.new.pix_informed_at && antes && !antes.pix_informed_at;
+        self.loadAll();
+        if (avisou) self.flash('Pedido #' + ev.new.id + ': o comprador avisou que pagou o Pix. Confira o extrato e confirme.');
+        if (novo && ev.new.status === 'pago' && !(antes && antes.status === 'aguardando_pagamento' && ev.new.pay_method === 'pix')) self.flash('Pedido #' + ev.new.id + ' pago: pronto para preparar.');
+        if (ev.eventType === 'INSERT' && ev.new.status === 'aguardando_pagamento' && ev.new.pay_method === 'pix') self.flash('Pedido #' + ev.new.id + ' recebido: aguardando o Pix do comprador.');
+        if (ev.eventType === 'INSERT' && ev.new.status === 'confirmado') self.flash('Pedido #' + ev.new.id + ' recebido: o comprador paga na loja.');
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, function (ev) {
+        var m = ev.new, convs = self.s().convs;
+        var c = convs.find(function (x) { return x.id === m.conversation_id; });
+        if (!c) { self.loadAll(); return; }
+        if (c.messages.some(function (x) { return x.id === m.id; })) return;
+        self.setState({ convs: convs.map(function (x) { return x.id === c.id ? Object.assign({}, x, { messages: x.messages.concat([m]) }) : x; }) });
+        if (!m.from_store) self.flash('Nova mensagem de ' + ((c.profiles && c.profiles.name) || 'comprador') + '.');
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations', filter: 'store_id=eq.' + id }, function () { self.loadAll(); })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, function () { self.loadAll(); })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'stores', filter: 'id=eq.' + id }, function (ev) {
+        var antes = self.s().store;
+        self.loadAll();
+        if (ev.new.status === 'suspensa' && antes && antes.status !== 'suspensa') self.flash('A administração suspendeu a loja.');
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'store_admin_messages', filter: 'store_id=eq.' + id }, function (ev) {
+        var m = ev.new, lista = self.s().adminMsgs;
+        if (lista.some(function (x) { return x.id === m.id; })) return;
+        self.setState({ adminMsgs: lista.concat([m]) });
+        if (m.from_admin) self.flash('Nova mensagem da administração.');
+      })
+      .subscribe(function (status) {
+        // ao conectar ou reconectar, recarrega para pegar o que chegou enquanto estava fora do ar
+        var live = status === 'SUBSCRIBED';
+        if (live && !self.s().live) self.loadAll();
+        self.setState({ live: live });
+      });
+    clearInterval(this._poll);
+    this._poll = setInterval(function () { if (!document.hidden) self.loadAll(); }, 30000);
+  }
+
+  async assinarImagens(paths) {
+    var self = this;
+    this._assinando = this._assinando || {};
+    var novos = paths.filter(function (p) { return !self._assinando[p]; });
+    if (!novos.length) return;
+    novos.forEach(function (p) { self._assinando[p] = true; });
+    var r = await sb.storage.from('conversas').createSignedUrls(novos, 3600);
+    novos.forEach(function (p) { delete self._assinando[p]; });
+    if (r.error) return;
+    var urls = Object.assign({}, this.s().imgUrls);
+    (r.data || []).forEach(function (x) { if (x.signedUrl) urls[x.path] = x.signedUrl; });
+    this.setState({ imgUrls: urls });
+  }
+
+  renderVals() {
+    var self = this, s = this.s();
+    var run = function (fn) {
+      return async function () {
+        if (self.s().busy) return;
+        self.setState({ busy: true });
+        try { await fn.apply(null, arguments); } catch (e) { self.flash(msgErro(e)); } finally { self.setState({ busy: false }); }
+      };
+    };
+    var role = this.myRole(), gestor = role.role === 'gestor';
+    var tabs = TABS.filter(function (t) { return (gestor || (t.perm && self.can(t.perm))) && (!t.module || (s.store && s.store[t.module])); });
+    var tab = tabs.some(function (t) { return t.key === s.tab; }) ? s.tab : (tabs[0] ? tabs[0].key : 'pedidos');
+    var is = {}; is[s.screen] = true; if (s.screen === 'painel') is[tab] = true;
+    var store = s.store || { name: '', initials: '', color: GREEN };
+    var setIn = function (obj, k) { return function (e) { var o = Object.assign({}, self.s()[obj]); o[k] = e.target.value; var p = {}; p[obj] = o; self.setState(p); }; };
+
+    // pedidos
+    var FILTERS = [
+      { key: 'todos', label: 'Todos', test: function () { return true; } },
+      { key: 'pix', label: 'Pix a confirmar', test: function (o) { return o.status === 'aguardando_pagamento' && o.pay_method === 'pix'; } },
+      { key: 'preparar', label: 'A preparar', test: function (o) { return o.status === 'pago' || o.status === 'confirmado' || o.status === 'em_preparacao'; } },
+      { key: 'prontos', label: 'Prontos / enviados', test: function (o) { return o.status === 'pronto' || o.status === 'enviado'; } },
+      { key: 'concluidos', label: 'Concluídos', test: function (o) { return o.status === 'concluido'; } },
+      { key: 'cancelados', label: 'Cancelados', test: function (o) { return o.status === 'cancelado' || o.status === 'reembolsado'; } }
+    ];
+    var filt = FILTERS.find(function (f) { return f.key === s.filter; });
+    var rows = s.orders.filter(filt.test);
+    var toPrepare = s.orders.filter(function (o) { return FILTERS[1].test(o) || FILTERS[2].test(o); }).length;
+    var hlMax = (s.store && s.store.highlights_per_day) || 0;
+    var hlUsed = s.products.filter(function (p) { return p.highlighted_today; }).length;
+    var adminUnread = s.adminMsgs.filter(function (m) { return m.from_admin && m.id > s.adminRead; }).length;
+    // aba da administração aberta: o que chegou já conta como lido
+    if (s.screen === 'painel' && tab === 'administracao' && adminUnread && !this._lendoAdmin) {
+      this._lendoAdmin = true;
+      var ultima = s.adminMsgs[s.adminMsgs.length - 1].id;
+      setTimeout(async function () {
+        var r = await sb.rpc('mark_store_admin_read', { p_store: s.storeId });
+        self._lendoAdmin = false;
+        if (!r.error) self.setState({ adminRead: Math.max(self.s().adminRead, ultima) });
+      }, 0);
+    }
+    var NEXT = function (o) {
+      if (o.status === 'aguardando_pagamento' && o.pay_method === 'pix') return ['pix', 'Confirmar Pix recebido'];
+      if (o.status === 'pago' || o.status === 'confirmado') return ['em_preparacao', 'Iniciar preparação'];
+      if (o.status === 'em_preparacao') return o.fulfil === 'entrega' ? ['enviado', 'Marcar enviado'] : ['pronto', 'Marcar pronto'];
+      if (o.status === 'pronto' || o.status === 'enviado') return ['concluido', o.pay_method === 'na_loja' ? 'Concluir · pagamento recebido' : 'Concluir'];
+      return null;
+    };
+
+    // catálogo
+    var servico = s.form.kind === 'servico';
+    var labelsOf = function (f) {
+      if (f.kind === 'servico') return ['Serviço'];
+      var l = f.variants.split(',').map(function (v) { return v.trim(); }).filter(Boolean);
+      return l.length ? l : ['Único'];
+    };
+    // envia as fotos novas e devolve a lista final de endereços, na ordem do formulário
+    var subirFotos = async function (productId, photos) {
+      var urls = [];
+      for (var i = 0; i < photos.length; i++) {
+        var ph = photos[i];
+        if (ph.url) { urls.push(ph.url); continue; }
+        var path = s.storeId + '/' + productId + '-' + Date.now() + '-' + i + '.jpg';
+        var up = await sb.storage.from(BUCKET).upload(path, ph.blob, { contentType: 'image/jpeg', upsert: false });
+        if (up.error) throw up.error;
+        urls.push(sb.storage.from(BUCKET).getPublicUrl(path).data.publicUrl);
+      }
+      return urls;
+    };
+    var checarForm = function (f) {
+      var name = f.name.trim(), price = centavos(f.price);
+      if (!name) throw new Error(f.kind === 'servico' ? 'Dê um nome ao serviço.' : 'Dê um nome ao produto.');
+      if (isNaN(price) || price <= 0) throw new Error('Informe o preço.');
+      return { name: name, price: price };
+    };
+    var addProduct = async function (status) {
+      var f = self.s().form, ok = checarForm(f), name = ok.name;
+      var labels = labelsOf(f);
+      var stock = parseInt(f.stock, 10) || 0;
+      var r = await sb.from('products').insert({ store_id: s.storeId, name: name, description: f.desc.trim(), category: f.cat.trim(),
+        sku: f.sku.trim() || null, price_cents: ok.price, kind: f.kind, delivery_fee_cents: freteDoForm(f.shipping), pay_deadline_hours: prazoDoForm(f.deadline),
+        variant_label: f.kind === 'servico' ? 'Serviço' : labels.length > 1 ? 'Opção' : 'Modelo', status: status }).select().single();
+      if (r.error) throw r.error;
+      var v = await sb.from('product_variants').insert(labels.map(function (l, i) { return { product_id: r.data.id, label: l, stock: stock, position: i }; }));
+      if (v.error) throw v.error;
+      if (f.photos.length) {
+        var u = await sb.from('products').update({ photos: await subirFotos(r.data.id, f.photos) }).eq('id', r.data.id);
+        if (u.error) throw u.error;
+      }
+      self.setState({ showForm: false, form: FORM0 });
+      await self.loadAll();
+      self.flash(status === 'publicado' ? name + ' publicado no app.' : name + ' salvo como rascunho.');
+    };
+    var saveEdit = async function () {
+      var f = self.s().form, ok = checarForm(f);
+      var p = self.s().products.find(function (x) { return x.id === f.editId; });
+      if (!p) throw new Error('Produto não encontrado.');
+      var existentes = p.product_variants.map(function (v) { return v.label; });
+      var novas = f.kind === 'servico' ? [] : labelsOf(f).filter(function (l) { return existentes.indexOf(l) < 0 && l !== 'Único'; });
+      var photos = await subirFotos(p.id, f.photos);
+      var total = existentes.length + novas.length;
+      var r = await sb.from('products').update({ name: ok.name, description: f.desc.trim(), category: f.cat.trim(), sku: f.sku.trim() || null,
+        price_cents: ok.price, kind: f.kind, photos: photos, delivery_fee_cents: freteDoForm(f.shipping), pay_deadline_hours: prazoDoForm(f.deadline),
+        variant_label: f.kind === 'servico' ? 'Serviço' : total > 1 ? 'Opção' : p.variant_label === 'Serviço' ? 'Modelo' : p.variant_label }).eq('id', p.id);
+      if (r.error) throw r.error;
+      if (novas.length) {
+        var stock = parseInt(f.stock, 10) || 0;
+        var v = await sb.from('product_variants').insert(novas.map(function (l, i) { return { product_id: p.id, label: l, stock: stock, position: existentes.length + i }; }));
+        if (v.error) throw v.error;
+      }
+      // apaga do armazenamento as fotos que saíram (se falhar, a foto só fica sem uso)
+      var saiu = (p.photos || []).filter(function (u) { return photos.indexOf(u) < 0; }).map(caminhoDaFoto).filter(Boolean);
+      if (saiu.length) await sb.storage.from(BUCKET).remove(saiu);
+      self.setState({ showForm: false, form: FORM0 });
+      await self.loadAll();
+      self.flash(ok.name + ' atualizado' + (p.status === 'publicado' ? ' no app.' : '.'));
+    };
+    var editProduct = function (p) {
+      var serv = p.kind === 'servico';
+      self.setState({ showForm: true, form: { name: p.name, desc: p.description || '', price: reais(p.price_cents), cat: p.category || '',
+        variants: serv ? '' : p.product_variants.map(function (v) { return v.label; }).join(', '), stock: '', sku: p.sku || '',
+        shipping: p.delivery_fee_cents == null ? '' : reais(p.delivery_fee_cents),
+        deadline: p.pay_deadline_hours == null ? '' : String(p.pay_deadline_hours),
+        kind: p.kind || 'produto', editId: p.id, photos: (p.photos || []).map(function (u) { return { url: u }; }) } });
+      try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) {}
+    };
+    var formPrice = centavos(s.form.price);
+
+    // assinatura
+    var subNotice = (function () {
+      var x = s.sub; if (!x || !gestor) return null;
+      // dias de calendário (horário de Brasília): diminui a cada virada de dia
+      var diaBR = function (d) { return Date.parse(new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })); };
+      var falta = function (d) { return Math.round((diaBR(d) - diaBR(Date.now())) / 86400000); };
+      var plano = x.plan ? ' (' + x.plan + (x.price_cents ? ', ' + brl(x.price_cents) : '') + ')' : '';
+      if (x.paid_until && new Date(x.paid_until) > new Date()) {
+        var d = falta(x.paid_until);
+        return d <= 7 ? { title: d <= 0 ? 'Assinatura vence hoje.' : 'Assinatura vence em ' + d + (d === 1 ? ' dia.' : ' dias.'), text: 'Paga até ' + dia(x.paid_until) + plano + '. Fale com a administração do clube para renovar.', bg: '#FBEADF', fg: '#6B3008' } : null;
+      }
+      if (!x.paid_until && new Date(x.trial_ends_at) > new Date()) {
+        var t = falta(x.trial_ends_at);
+        return { title: 'Teste grátis: ' + (t <= 0 ? 'termina hoje.' : t === 1 ? 'falta 1 dia.' : 'faltam ' + t + ' dias.'), text: 'Vai até ' + dia(x.trial_ends_at) + '. Depois, a loja segue com assinatura mensal ou anual' + plano + ', combinada com a administração do clube.',
+          bg: t <= 7 ? '#FBEADF' : '#E3EEE9', fg: t <= 7 ? '#6B3008' : '#123B2E' };
+      }
+      // vencida: diz quando a loja será bloqueada, se a administração ligou o bloqueio automático
+      var venc = x.paid_until || x.trial_ends_at, atraso = -falta(venc), cfg = s.billing;
+      var bloqueio = store.blocked_for_billing ? 'A loja está bloqueada por atraso e volta sozinha assim que a administração registrar o pagamento.'
+        : cfg && cfg.auto_block ? (atraso >= cfg.block_after_days ? 'Sem pagamento, a loja será bloqueada na próxima verificação.'
+          : 'Sem pagamento, a loja será bloqueada em ' + dia(new Date(Date.parse(venc) + cfg.block_after_days * 86400000)) + ' (' + cfg.block_after_days + (cfg.block_after_days === 1 ? ' dia' : ' dias') + ' de atraso).')
+        : 'A loja continua funcionando.';
+      return { title: 'Assinatura em atraso há ' + atraso + (atraso === 1 ? ' dia' : ' dias') + ': venceu em ' + dia(venc) + '.',
+        text: bloqueio + ' Fale com a administração do clube na aba Administração para regularizar' + plano + '.', bg: '#F8E3E3', fg: '#7A1C1F' };
+    })();
+
+    // aba Assinatura: situação, último pagamento e histórico
+    var ass = (function () {
+      var x = s.sub, cfg = s.billing, out = { rows: [], lastRows: [], pays: [], hasRule: false, rule: '', ruleColor: MUTED };
+      if (!x) return Object.assign(out, { status: 'Sem dados', bg: '#ECEDE8', fg: MUTED, bd: '#DCDDD7', headline: 'Assinatura não encontrada', noPays: true, hasPays: false });
+      var diaBR = function (d) { return Date.parse(new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })); };
+      var venc = x.paid_until || x.trial_ends_at, falta = Math.round((diaBR(venc) - diaBR(Date.now())) / 86400000);
+      var st = store.blocked_for_billing && store.status === 'suspensa' ? ['Bloqueada por atraso', '#B3261E', '#FFFFFF', '#B3261E']
+        : falta < 0 ? ['Em atraso há ' + (-falta) + (falta === -1 ? ' dia' : ' dias'), '#F8E3E3', '#7A1C1F', '#E7B7B5']
+        : !x.paid_until ? ['Teste grátis', '#E3EEE9', '#123B2E', '#DCDDD7']
+        : falta <= 7 ? [falta === 0 ? 'Vence hoje' : 'Vence em ' + falta + (falta === 1 ? ' dia' : ' dias'), '#FBEADF', '#6B3008', '#E3A86B']
+        : ['Em dia', '#E3EEE9', '#123B2E', '#DCDDD7'];
+      out.status = st[0]; out.bg = st[1]; out.fg = st[2]; out.bd = st[3];
+      out.headline = (x.paid_until ? (falta < 0 ? 'Venceu em ' : 'Paga até ') : (falta < 0 ? 'Teste grátis terminou em ' : 'Teste grátis até ')) + dataBR(venc);
+      out.rows = [
+        { k: 'Plano', v: x.plan ? (x.plan === 'anual' ? 'Anual' : 'Mensal') : 'A combinar com a administração' },
+        { k: 'Valor', v: x.price_cents ? brl(x.price_cents) + (x.plan === 'anual' ? ' por ano' : ' por mês') : 'A combinar' },
+        { k: falta < 0 ? 'Vencida desde' : 'Próximo vencimento', v: dataBR(venc) + (falta > 0 ? ' (' + (falta === 1 ? 'falta 1 dia' : 'faltam ' + falta + ' dias') + ')' : falta === 0 ? ' (hoje)' : '') }
+      ].concat(store.created_at ? [{ k: 'Loja no clube desde', v: dataBR(store.created_at) }] : []);
+      if (cfg && cfg.auto_block) {
+        out.hasRule = true;
+        out.rule = store.blocked_for_billing ? 'A loja volta sozinha assim que a administração registrar o pagamento.'
+          : 'Sem pagamento, a loja é bloqueada com ' + cfg.block_after_days + (cfg.block_after_days === 1 ? ' dia' : ' dias') + ' de atraso' +
+            (falta < 0 ? ': em ' + dataBR(new Date(Date.parse(venc) + cfg.block_after_days * 86400000)) + '.' : '.') + ' O lembrete chega ' +
+            (cfg.remind_days_before ? cfg.remind_days_before + (cfg.remind_days_before === 1 ? ' dia' : ' dias') + ' antes de vencer.' : 'no dia do vencimento.');
+        out.ruleColor = falta < 0 ? '#7A1C1F' : MUTED;
+      }
+      var pays = s.subPays || [];
+      out.hasPays = pays.length > 0; out.noPays = !pays.length;
+      if (pays.length) {
+        var u = pays[0];
+        out.lastAmount = brl(u.amount_cents);
+        out.lastRows = [
+          { k: 'Pago em', v: dataBR(u.created_at) }, { k: 'Forma', v: METODOS[u.method] || 'Não informada' },
+          { k: 'Plano', v: u.plan === 'anual' ? 'Anual' : 'Mensal' }, { k: 'Cobre', v: dataBR(u.period_start) + ' a ' + dataBR(u.period_end) }
+        ].concat(u.note ? [{ k: 'Observação', v: u.note }] : []);
+      }
+      out.pays = pays.map(function (pg) {
+        return { when: dataBR(pg.created_at), plan: pg.plan === 'anual' ? 'Anual' : 'Mensal', amount: brl(pg.amount_cents),
+          method: METODOS[pg.method] || 'Não informada', period: dataBR(pg.period_start) + ' a ' + dataBR(pg.period_end), note: pg.note || '—' };
+      });
+      return out;
+    })();
+
+    // conversas (as imagens ficam num bucket privado: endereços assinados por 1 hora)
+    var faltam = [];
+    setTimeout(function () { if (faltam.length) self.assinarImagens(faltam); }, 0);
+    var cur = s.convs.find(function (c) { return c.id === s.thread; });
+    var prodName = function (id) { var p = s.products.find(function (x) { return x.id === id; }); return p ? p.name : 'produto'; };
+
+    // convites
+    var invOpt = function (field, label, values) {
+      return { label: label, opts: values.map(function (v) {
+        return Object.assign({ label: v[1], pick: function () { var i = Object.assign({}, self.s().inv); i[field] = v[0]; self.setState({ inv: i }); } }, pill(s.inv[field] === v[0]));
+      }) };
+    };
+    var KINDS = { codigo: 'Código', link: 'Link', individual: 'Individual' };
+
+    // fidelidade
+    var prog = s.program || { points_per_real: 1, redeem_points: 100, redeem_value_cents: 1000, validity_months: 12 };
+
+    // pagamentos
+    var PAYST = { approved: ['Aprovado', '#E3EEE9', '#123B2E'], pending: ['Pendente', '#ECEDE8', MUTED], rejected: ['Recusado', '#F8E3E3', '#7A1C1F'],
+      refunded: ['Devolvido', '#F8E3E3', '#7A1C1F'], refund_pending: ['Devolver ao comprador', '#FBEADF', '#6B3008'], refund_failed: ['Estorno falhou', '#FBEADF', '#6B3008'], cancelled: ['Cancelado', '#ECEDE8', MUTED] };
+    // formulário da chave Pix: começa com o que está salvo e guarda só o que a pessoa mudou
+    var pixForm = Object.assign({ type: (s.store && s.store.pix_key_type) || 'cpf_cnpj', key: (s.store && s.store.pix_key) || '',
+      name: (s.store && s.store.pix_name) || '', city: (s.store && s.store.pix_city) || '' }, s.pix || {});
+    var setPix = function (k, fixo) {
+      return function (e) { var o = Object.assign({}, self.s().pix || {}); o[k] = fixo !== undefined ? fixo : e.target.value; self.setState({ pix: o }); };
+    };
+    var updStore = async function (patch) {
+      var r = await sb.from('stores').update(patch).eq('id', s.storeId).select().single();
+      if (r.error) throw r.error;
+      self.setState({ store: Object.assign({}, self.s().store, r.data) });
+    };
+
+    return {
+            // instalar como app (Chrome/Edge: convite direto; Safari e outros: explica o caminho)
+      canInstall: !!(window.__instalar && !window.__instalar.instalado()),
+      installApp: async function () {
+        var i = window.__instalar; if (!i) return;
+        if (i.direto()) {
+          var r = await i.abrir();
+          if (r === 'accepted') self.flash('Painel instalado: abra pelo ícone Loja CC.');
+          return;
+        }
+        self.setState({ installHelp: i.dica() });
+      },
+      hasInstallHelp: !!s.installHelp, installHelp: s.installHelp || '',
+      closeInstallHelp: function () { self.setState({ installHelp: '' }); },
+      is: is, busy: s.busy, loadingText: s.loadingText, hasToast: !!s.toast, toast: s.toast,
+
+      // entrar
+      email: s.email, codeSent: s.codeSent, otp: s.otp, hasLoginMsg: !!s.loginMsg, loginMsg: s.loginMsg,
+      onEmail: function (e) { self.setState({ email: e.target.value, codeSent: false, loginMsg: '' }); },
+      onOtp: function (e) { self.setState({ otp: e.target.value, loginMsg: '' }); },
+      loginLabel: s.busy ? 'Aguarde…' : s.codeSent ? 'Entrar' : 'Enviar código',
+      loginAction: run(async function () {
+        var st = self.s(), email = st.email.trim().toLowerCase();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { self.setState({ loginMsg: 'Informe um e-mail válido.' }); return; }
+        if (!st.codeSent) {
+          var r = await sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: true } });
+          if (r.error) throw r.error;
+          self.setState({ codeSent: true });
+          self.flash('Código enviado para ' + email + '.');
+          return;
+        }
+        var v = await sb.auth.verifyOtp({ email: email, token: st.otp.replace(/\D/g, ''), type: 'email' });
+        if (v.error) { self.setState({ loginMsg: 'Código incorreto ou vencido.' }); return; }
+        self.setState({ otp: '', codeSent: false });
+        await self.loadStaff();
+      }),
+      meEmail: s.me ? s.me.email : '',
+      // tema claro/escuro: Automático (segue o aparelho) → Claro → Escuro
+      temaLabel: 'Tema: ' + { auto: 'automático', claro: 'claro', escuro: 'escuro' }[window.__tema ? window.__tema.get() : 'auto'],
+      temaShort: { auto: 'Automático', claro: 'Claro', escuro: 'Escuro' }[window.__tema ? window.__tema.get() : 'auto'],
+      cycleTheme: function () {
+        if (!window.__tema) return;
+        var next = { auto: 'claro', claro: 'escuro', escuro: 'auto' }[window.__tema.get()];
+        window.__tema.set(next);
+        self.setState({ tema: next });
+        self.flash(next === 'auto' ? 'Tema automático: segue o tema do aparelho.' : next === 'escuro' ? 'Tema escuro.' : 'Tema claro.');
+      },
+      reload: run(function () { return self.loadStaff(); }),
+      signOut: run(async function () { clearInterval(self._poll); if (self._canal) sb.removeChannel(self._canal); await sb.auth.signOut(); self.setState(Object.assign(self.initial(), { screen: 'entrar' })); }),
+
+      // dados da loja
+      storeInfoFields: STORE_INFO.map(function (f) {
+        var d = s.infoDraft || {}, v = f[0] in d ? d[f[0]] : (s.store ? s.store[f[0]] || '' : '');
+        return { id: 'loja-' + f[0], label: f[1], ph: f[2], flex: f[3], type: f[4], value: v,
+          change: function (e) { var o = Object.assign({}, self.s().infoDraft || {}); o[f[0]] = e.target.value; self.setState({ infoDraft: o }); } };
+      }),
+      storeInfoDirty: !!s.infoDraft,
+      resetStoreInfo: function () { self.setState({ infoDraft: null }); },
+      saveStoreInfo: run(async function () {
+        var st = self.s(), i = {};
+        STORE_INFO.forEach(function (f) { i[f[0]] = st.infoDraft && f[0] in st.infoDraft ? st.infoDraft[f[0]] : (st.store[f[0]] || ''); });
+        var r = await sb.rpc('update_store_info', { p_store: st.storeId, p_name: i.name, p_category: i.category, p_address: i.address, p_phone: i.phone,
+          p_whatsapp: i.whatsapp, p_email: i.email, p_instagram: i.instagram, p_website: i.website, p_document: i.document, p_about: i.about, p_hours: i.hours });
+        if (r.error) throw r.error;
+        self.setState({ infoDraft: null });
+        await self.loadAll();
+        self.flash('Dados da loja salvos. Já aparecem no app.');
+      }),
+
+      // pedidos de convite feitos pelo app
+      noRequests: !s.requests.length,
+      requestRows: s.requests.map(function (q) {
+        var tel = String(q.phone || '').replace(/\D/g, ''), decide = function (ok) {
+          return run(async function () {
+            var r = await sb.rpc('decide_invite_request', { p_request: q.id, p_approve: ok });
+            if (r.error) throw r.error;
+            await self.loadAll();
+            self.flash(ok ? 'Convite aprovado para ' + q.name + '. Avise pelo WhatsApp: o acesso é pelo e-mail ' + q.email + '.' : 'Pedido de ' + q.name + ' recusado.');
+          });
+        };
+        var msg = 'Olá, ' + q.name.split(' ')[0] + '! Seu convite para o ' + ((s.group && s.group.name) || 'clube') + ' foi aprovado pela ' + store.name +
+          '. Abra o app Clube de Compras, toque em "Já sou membro · entrar" e use o e-mail ' + q.email + ': chega um código de acesso e você já pode comprar.';
+        return { name: q.name, contact: q.email + ' · ' + q.phone + ' · pedido em ' + hora(q.created_at),
+          statusLabel: q.status === 'pendente' ? 'Aguardando sua análise' : q.status === 'aprovado' ? (q.claimed_at ? 'Aprovado · já entrou no clube' : 'Aprovado · ainda não entrou') : 'Recusado',
+          statusColor: q.status === 'pendente' ? '#A04A12' : q.status === 'aprovado' ? GREEN : MUTED,
+          pending: q.status === 'pendente', approved: q.status === 'aprovado' && !q.claimed_at,
+          approve: decide(true), refuse: decide(false),
+          whatsapp: 'https://wa.me/' + (tel.length <= 11 ? '55' + tel : tel) + '?text=' + encodeURIComponent(msg) };
+      }),
+
+      // promoções: envio em massa para todos os clientes da loja
+      bcKinds: BC_KINDS.map(function (k) {
+        return Object.assign({ label: k[1], pick: function () { self.setState({ bc: Object.assign({}, self.s().bc, { kind: k[0], confirming: false }) }); } }, pill(s.bc.kind === k[0]));
+      }),
+      bcTitle: s.bc.title, bcBody: s.bc.body,
+      onBcTitle: function (e) { self.setState({ bc: Object.assign({}, self.s().bc, { title: e.target.value, confirming: false }) }); },
+      onBcBody: function (e) { self.setState({ bc: Object.assign({}, self.s().bc, { body: e.target.value, confirming: false }) }); },
+      bcCount: s.bc.body.length + '/1000 caracteres',
+      bcImageLabel: s.bc.blob ? 'Trocar imagem' : 'Adicionar imagem (opcional)',
+      bcHasImage: !!s.bc.blob, bcPreview: s.bc.preview,
+      onBcPhoto: run(async function (e) {
+        var file = e && e.target && e.target.files && e.target.files[0];
+        if (e && e.target) e.target.value = '';
+        if (!file) return;
+        var blob = await reduzirFoto(file);
+        self.setState({ bc: Object.assign({}, self.s().bc, { blob: blob, preview: URL.createObjectURL(blob), confirming: false }) });
+      }),
+      bcRemoveImage: function () { self.setState({ bc: Object.assign({}, self.s().bc, { blob: null, preview: '', confirming: false }) }); },
+      bcBlocked: !s.bc.title.trim() || !s.bc.body.trim() || !s.customers.length,
+      bcSendLabel: s.customers.length ? 'Enviar para ' + s.customers.length + (s.customers.length === 1 ? ' cliente' : ' clientes') : 'A loja ainda não tem clientes',
+      bcConfirming: s.bc.confirming, bcNotConfirming: !s.bc.confirming,
+      bcConfirmText: 'Enviar "' + s.bc.title.trim() + '" para ' + s.customers.length + (s.customers.length === 1 ? ' cliente' : ' clientes') + '? Depois de enviado não dá para desfazer.',
+      bcAsk: function () { self.setState({ bc: Object.assign({}, self.s().bc, { confirming: true }) }); },
+      bcCancel: function () { self.setState({ bc: Object.assign({}, self.s().bc, { confirming: false }) }); },
+      bcSend: run(async function () {
+        var st = self.s(), b = st.bc, path = null;
+        if (b.blob) {
+          path = 'difusao/' + st.storeId + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.jpg';
+          var up = await sb.storage.from('conversas').upload(path, b.blob, { contentType: 'image/jpeg', upsert: false });
+          if (up.error) throw up.error;
+        }
+        var r = await sb.rpc('send_store_broadcast', { p_store: st.storeId, p_kind: b.kind, p_title: b.title, p_body: b.body, p_image_path: path });
+        if (r.error) { self.setState({ bc: Object.assign({}, b, { confirming: false }) }); throw r.error; }
+        self.setState({ bc: { kind: b.kind, title: '', body: '', blob: null, preview: '', confirming: false } });
+        await self.loadAll();
+        self.flash('Enviado para ' + r.data + (r.data === 1 ? ' cliente.' : ' clientes.'));
+      }),
+      bcNoHistory: !s.broadcasts.length,
+      bcHistory: s.broadcasts.map(function (b) {
+        var k = BC_KINDS.find(function (x) { return x[0] === b.kind; });
+        return { meta: (k ? k[1] : b.kind) + ' · ' + hora(b.created_at) + ' · ' + b.recipients + (b.recipients === 1 ? ' cliente' : ' clientes') + (b.image_path ? ' · com imagem' : ''),
+          title: b.title, body: b.body };
+      }),
+
+      // relatório de vendas
+      // a loja com menos de 12 meses no clube só tem relatório a partir da data de inclusão
+      reportRange: s.report.length ? (desdeInclusao(s.report) ? 'Desde a inclusão da loja: ' : 'Últimos 12 meses: ') + diaAno(s.report[0].period_start) + ' a ' + diaAno(s.report[s.report.length - 1].period_end) : 'Últimos 12 meses',
+      reportPeriods: REPORT_PERIODS.map(function (p) {
+        return Object.assign({ label: p[1], pick: run(async function () {
+          var r = await sb.rpc('store_sales_report', { p_store: s.storeId, p_period: p[0] });
+          if (r.error) throw r.error;
+          self.setState({ reportPeriod: p[0], report: r.data || [] });
+        }) }, pill(s.reportPeriod === p[0]));
+      }),
+      reportKpis: (function () {
+        var t = s.report.reduce(function (a, r) { return { total: a.total + Number(r.total_cents), orders: a.orders + r.orders, items: a.items + r.items }; }, { total: 0, orders: 0, items: 0 });
+        return [{ label: desdeInclusao(s.report) ? 'Vendas desde a inclusão' : 'Vendas em 12 meses', value: brl(t.total) }, { label: 'Pedidos', value: String(t.orders) },
+          { label: 'Ticket médio', value: brl(t.orders ? Math.round(t.total / t.orders) : 0) }, { label: 'Itens vendidos', value: String(t.items) }];
+      })(),
+      reportRows: (function () {
+        var max = Math.max.apply(null, s.report.map(function (r) { return Number(r.total_cents); }).concat([1]));
+        return s.report.map(function (r) {
+          var pix = Number(r.pix_cents), loja = Number(r.in_store_cents);
+          return { label: r.label, dates: diaAno(r.period_start) + ' a ' + diaAno(r.period_end), total: brl(Number(r.total_cents)),
+            pct: Math.round(Number(r.total_cents) / max * 100) + '%', orders: r.orders, ticket: brl(r.ticket_cents), items: r.items, buyers: r.buyers,
+            cancelled: r.cancelled, split: r.orders ? 'Pix ' + brl(pix) + ' · na loja ' + brl(loja) : '' };
+        });
+      })(),
+      // planilha CSV (abre no Excel e no Google Planilhas), com separador ";" e acentos preservados
+      downloadReport: run(async function () {
+        var st = self.s();
+        var r = await sb.rpc('store_sales_report', { p_store: st.storeId, p_period: st.reportPeriod });
+        if (r.error) throw r.error;
+        var cel = function (v) { v = String(v == null ? '' : v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+        var real = function (c) { return (Number(c) / 100).toFixed(2).replace('.', ','); };
+        var linhas = [['Período', 'Início', 'Fim', 'Pedidos', 'Total (R$)', 'Ticket médio (R$)', 'Itens', 'Clientes', 'Pix (R$)', 'Na loja (R$)', 'Cancelados']].concat(r.data.map(function (x) {
+          return [x.label, diaAno(x.period_start), diaAno(x.period_end), x.orders, real(x.total_cents), real(x.ticket_cents), x.items, x.buyers, real(x.pix_cents), real(x.in_store_cents), x.cancelled];
+        }));
+        var csv = '\ufeff' + linhas.map(function (l) { return l.map(cel).join(';'); }).join('\r\n');
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+        a.download = 'vendas-' + (st.store ? st.store.name : 'loja').toLowerCase().replace(/[^a-z0-9]+/gi, '-') + '-' + st.reportPeriod + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+        document.body.appendChild(a); a.click(); a.remove();
+        self.flash('Relatório ' + st.reportPeriod + ' baixado.');
+      }),
+
+      // clientes
+      customerQuery: s.customerQuery, onCustomerQuery: function (e) { self.setState({ customerQuery: e.target.value }); },
+      customerKpis: [
+        { label: 'Clientes', value: String(s.customers.length) },
+        { label: 'Total vendido', value: brl(s.customers.reduce(function (a, c) { return a + Number(c.total_cents); }, 0)) },
+        { label: 'Compraram mais de uma vez', value: String(s.customers.filter(function (c) { return c.orders > 1; }).length) }
+      ],
+      customerRows: s.customers.filter(function (c) {
+        var q = s.customerQuery.trim().toLowerCase();
+        return !q || (c.name + ' ' + c.contact).toLowerCase().indexOf(q) >= 0;
+      }).map(function (c) {
+        return { name: c.name || 'Sem nome', contact: c.contact, orders: c.orders, total: brl(Number(c.total_cents)),
+          dates: dia(c.first_at) + (dia(c.first_at) === dia(c.last_at) ? '' : ' · ' + dia(c.last_at)), points: c.points, address: c.last_address || '—' };
+      }),
+      noCustomers: s.customers.length === 0, noCustomersText: 'Nenhuma compra ainda. O comprador entra na lista no primeiro pedido.',
+
+      // assinatura: só aviso, a loja segue funcionando
+      // loja suspensa: alerta vermelho no topo de todas as abas
+      isSuspended: !!(store.status === 'suspensa'),
+      suspendedTitle: (store.blocked_for_billing ? 'Loja bloqueada por atraso na assinatura' : 'Loja suspensa pela administração') + (store.suspended_at ? ' desde ' + hora(store.suspended_at) : '') + '.',
+      suspendedText: (store.suspension_reason ? 'Motivo: ' + store.suspension_reason + '. ' : '') +
+        'Enquanto durar ' + (store.blocked_for_billing ? 'o bloqueio' : 'a suspensão') + ', a loja não aparece no app e os clientes não compram.' +
+        (store.blocked_for_billing ? ' Assim que o pagamento for registrado, a loja volta sozinha.' : '') + (gestor ? ' Fale com a administração na aba Administração.' : ''),
+      ass: ass, goAdmin: function () { self.setState({ tab: 'administracao' }); },
+      hasSubNotice: !!subNotice, subNotice: subNotice || { title: '', text: '', bg: '', fg: '' },
+
+      // cabeçalho
+      store: { name: store.name, initials: store.initials, color: store.color, subtitle: (s.group ? s.group.name : '') + ' · painel da loja' },
+      liveLabel: s.live ? '● ao vivo' : '○ reconectando…', liveColor: s.live ? GREEN : PROMO,
+      meLine: s.me ? (s.me.name || s.me.email) + ' · ' + (gestor ? 'gestor' : 'atendente') : '',
+      hasManyStores: s.staff.length > 1,
+      storeSwitch: s.staff.map(function (x) { return Object.assign({ label: x.stores.name, pick: run(function () { return self.openStore(x.store_id); }) }, pill(x.store_id === s.storeId)); }),
+      isAtendente: !gestor, canEdit: gestor, groupName: s.group ? s.group.name : 'clube',
+      tabs: tabs.map(function (t) {
+        var on = t.key === tab, count = t.key === 'pedidos' ? toPrepare : t.key === 'administracao' ? adminUnread : t.key === 'convites' ? s.pending.length + s.requests.filter(function (q) { return q.status === 'pendente'; }).length : 0;
+        return { label: t.label, bg: on ? '#E3EEE9' : 'transparent', fg: on ? '#123B2E' : INK, hasCount: count > 0, count: count, go: function () { self.setState({ tab: t.key }); } };
+      }),
+
+      // pedidos
+      orderFilters: FILTERS.map(function (f) { return Object.assign({ label: f.label, pick: function () { self.setState({ filter: f.key }); } }, pill(f.key === s.filter)); }),
+      noOrdersInFilter: rows.length === 0,
+      orderRows: rows.map(function (o) {
+        var nx = self.can('status') ? NEXT(o) : null, st = STATUS[o.status];
+        // Pix: mostra quando o comprador já avisou que pagou
+        if (o.status === 'aguardando_pagamento' && o.pay_method === 'pix') st = o.pix_informed_at ? ['Comprador avisou que pagou', '#FBEADF', '#6B3008'] : ['Aguardando Pix', '#ECEDE8', MUTED];
+        var final = ['concluido', 'cancelado', 'reembolsado'].indexOf(o.status) >= 0;
+        return {
+          id: o.id, when: hora(o.created_at), buyer: (o.profiles && o.profiles.name) || 'Comprador',
+          items: o.order_items.map(function (i) { return i.qty + '× ' + i.name + ' (' + i.variant_label + ')'; }).join(', '),
+          fulfilLabel: o.fulfil === 'entrega' ? 'Entrega: ' + o.address : 'Retirada', pay: PAYM(o),
+          totalLabel: brl(o.total_cents), statusLabel: st[0], badgeBg: st[1], badgeFg: st[2],
+          hasDeadline: !!vencimento(o), deadlineLabel: vencimento(o) ? 'Pagar até ' + hora(vencimento(o)) + ' ou cancela' : '',
+          hasAction: !!nx, actionLabel: nx ? nx[1] : '', canCancel: gestor && !final, noAction: !nx && !(gestor && !final),
+          advance: run(async function () {
+            var r = nx[0] === 'pix' ? await sb.rpc('confirm_pix_payment', { p_order: o.id }) : await sb.rpc('advance_order', { p_order: o.id, p_status: nx[0] });
+            if (r.error) throw r.error;
+            await self.loadAll();
+            self.flash(nx[0] === 'pix' ? 'Pix do pedido #' + o.id + ' confirmado. Pode preparar.' : 'Pedido #' + o.id + ': ' + STATUS[nx[0]][0] + '. O comprador foi avisado.');
+          }),
+          cancel: run(async function () {
+            var r = await sb.rpc('cancel_order', { p_order: o.id, p_reason: 'Cancelado pela loja' });
+            if (r.error) throw r.error;
+            await self.loadAll();
+            self.flash(r.data === 'reembolsado' && o.pay_method === 'pix' ? 'Pedido #' + o.id + ' cancelado. Devolva ' + brl(o.total_cents) + ' ao comprador pelo Pix e marque em Pagamentos.'
+              : 'Pedido #' + o.id + ' cancelado.');
+          })
+        };
+      }),
+
+      // catálogo
+      showForm: s.showForm && gestor, formToggleLabel: s.showForm ? 'Fechar' : 'Novo produto',
+      toggleForm: function () { self.setState({ showForm: !s.showForm, form: FORM0 }); },
+      isNewForm: !s.form.editId, isEditForm: !!s.form.editId,
+      formTitle: s.form.editId ? 'Editando ' + (s.form.name || 'item') : servico ? 'Novo serviço' : 'Novo produto',
+      kindOpts: [['produto', 'Produto'], ['servico', 'Serviço']].map(function (k) {
+        return Object.assign({ label: k[1], pick: function () { self.setState({ form: Object.assign({}, self.s().form, { kind: k[0] }) }); } }, pill(s.form.kind === k[0]));
+      }),
+      formIsProduct: !servico, formIsService: servico,
+      variantsLabel: s.form.editId ? 'Variações (vírgula; inclua novas no fim)' : 'Variações (vírgula)',
+      stockFieldLabel: s.form.editId ? 'Estoque das variações novas' : 'Estoque por variação',
+      photoCount: s.form.photos.length, canAddPhoto: s.form.photos.length < 4,
+      formPhotos: s.form.photos.map(function (ph, i) {
+        return { src: ph.url || ph.preview, remove: function () {
+          var f = self.s().form;
+          self.setState({ form: Object.assign({}, f, { photos: f.photos.filter(function (_, j) { return j !== i; }) }) });
+        } };
+      }),
+      onPhotos: run(async function (e) {
+        var files = Array.prototype.slice.call((e && e.target && e.target.files) || []);
+        var f = self.s().form, livres = 4 - f.photos.length;
+        if (files.length > livres) self.flash('Cada item aceita até 4 fotos.');
+        var novas = [];
+        for (var i = 0; i < Math.min(livres, files.length); i++) {
+          var blob = await reduzirFoto(files[i]);
+          novas.push({ blob: blob, preview: URL.createObjectURL(blob) });
+        }
+        if (e && e.target) e.target.value = '';
+        f = self.s().form;
+        self.setState({ form: Object.assign({}, f, { photos: f.photos.concat(novas).slice(0, 4) }) });
+      }),
+      cancelEdit: function () { self.setState({ showForm: false, form: FORM0 }); },
+      saveEdit: run(saveEdit),
+      form: s.form, onFormName: setIn('form', 'name'), onFormDesc: setIn('form', 'desc'), onFormPrice: setIn('form', 'price'),
+      onFormCat: setIn('form', 'cat'), onFormVariants: setIn('form', 'variants'), onFormStock: setIn('form', 'stock'), onFormSku: setIn('form', 'sku'),
+      onFormShipping: setIn('form', 'shipping'),
+      onFormDeadline: setIn('form', 'deadline'),
+      deadlineOptions: PRAZOS.map(function (o) { return { value: o[0], label: o[1] }; }),
+      preview: { name: s.form.name || (servico ? 'Nome do serviço' : 'Nome do produto'), price: brl(isNaN(formPrice) ? 0 : formPrice),
+        variants: servico ? 'Serviço' : s.form.variants || 'Sem variações',
+        bg: fundo(s.form.photos[0] ? s.form.photos[0].url || s.form.photos[0].preview : '', '#D9E3DC') },
+      saveDraft: run(function () { return addProduct('rascunho'); }), publishNew: run(function () { return addProduct('publicado'); }),
+      hlLine: hlMax === 0 ? 'Destaques no app: não liberados pela administração' : 'Destaques de hoje: ' + hlUsed + ' de ' + hlMax + ' (valem até a meia-noite)',
+      hlColor: hlMax === 0 ? MUTED : hlUsed >= hlMax ? PROMO : GREEN,
+      productRows: s.products.map(function (p) {
+        var st = p.status === 'publicado' ? ['#E3EEE9', '#123B2E', 'Publicado'] : p.status === 'rascunho' ? ['#ECEDE8', MUTED, 'Rascunho'] : ['#F8E3E3', '#7A1C1F', 'Retirado'];
+        var last = (p.product_history || []).sort(function (a, b) { return new Date(b.at) - new Date(a.at); })[0];
+        var setStock = function (v, delta) {
+          return run(async function () {
+            var r = await sb.from('product_variants').update({ stock: Math.max(0, v.stock + delta) }).eq('id', v.id);
+            if (r.error) throw r.error;
+            await self.loadAll();
+          });
+        };
+        return {
+          name: p.name, cat: (p.highlighted_today ? 'Em destaque hoje · ' : '') + (p.kind === 'servico' ? 'Serviço · ' : '') + (p.category || 'Sem categoria') + (p.delivery_fee_cents != null ? ' · entrega ' + brl(p.delivery_fee_cents) : '') + (p.pay_deadline_hours != null ? ' · pagar em ' + PRAZOS.find(function (o) { return o[0] === String(p.pay_deadline_hours); })[1].toLowerCase() : ''), history: last ? 'alterado em ' + dia(last.at) : 'criado em ' + dia(p.created_at),
+          thumb: fundo((p.photos || [])[0], p.tint || '#DCDDD7'), isService: p.kind === 'servico', edit: function () { editProduct(p); },
+          priceLabel: brl(p.price_cents), badgeBg: st[0], badgeFg: st[1], statusLabel: st[2],
+          variants: p.kind === 'servico' ? [] : p.product_variants.map(function (v) { return { label: v.label, stock: v.stock, color: v.stock === 0 ? RED : v.stock <= 3 ? PROMO : INK, inc: setStock(v, 1), dec: setStock(v, -1) }; }),
+          toggleLabel: p.status === 'publicado' ? 'Retirar do app' : 'Publicar',
+          // destaque do dia: só produto publicado, dentro do limite que a administração deu à loja
+          canHighlight: p.status === 'publicado' && (p.highlighted_today || hlMax > 0),
+          hlLabel: p.highlighted_today ? 'Tirar destaque' : 'Destacar hoje',
+          hlBg: p.highlighted_today ? '#FBEADF' : '#FFFFFF', hlFg: p.highlighted_today ? '#6B3008' : INK, hlBd: p.highlighted_today ? '#E3A86B' : '#C9CBC4',
+          highlight: run(async function () {
+            var r = await sb.rpc('set_product_highlight', { p_product: p.id, p_on: !p.highlighted_today });
+            if (r.error) throw r.error;
+            await self.loadAll();
+            self.flash(p.highlighted_today ? p.name + ' saiu dos destaques.' : p.name + ' em destaque hoje no app (' + r.data + ' de ' + hlMax + ').');
+          }),
+          toggle: run(async function () {
+            var next = p.status === 'publicado' ? 'retirado' : 'publicado';
+            var r = await sb.from('products').update({ status: next }).eq('id', p.id);
+            if (r.error) throw r.error;
+            await self.loadAll();
+            self.flash(p.name + (next === 'publicado' ? ' publicado no app.' : ' retirado do app.'));
+          })
+        };
+      }),
+
+      // canal com a administração do clube
+      noAdminMsgs: !s.adminMsgs.length, hasAdminMsgs: s.adminMsgs.length > 0,
+      adminMsgs: s.adminMsgs.map(function (m) {
+        var novo = m.from_admin && m.id > s.adminRead;
+        return { text: m.body, when: (m.from_admin ? 'Administração' : 'Você') + ' · ' + hora(m.created_at) + (novo ? ' · nova' : ''),
+          justify: m.from_admin ? 'flex-start' : 'flex-end', bg: m.from_admin ? '#F0F1EC' : GREEN, fg: m.from_admin ? INK : '#FFFFFF',
+          bd: novo ? '#A04A12' : 'transparent' };
+      }),
+      adminReply: s.adminReply, onAdminReply: function (e) { self.setState({ adminReply: e.target.value }); },
+      sendAdmin: run(async function () {
+        var t = self.s().adminReply.trim();
+        if (!t) return;
+        self.setState({ adminReply: '' });
+        var r = await sb.rpc('send_store_admin_message', { p_store: s.storeId, p_body: t });
+        if (r.error) { self.setState({ adminReply: t }); throw r.error; }
+        await self.loadAll();
+      }),
+
+      // mensagens
+      noThreads: s.convs.length === 0, hasThreads: s.convs.length > 0,
+      threads: s.convs.map(function (c) {
+        var last = c.messages[c.messages.length - 1];
+        return { buyer: (c.profiles && c.profiles.name) || 'Comprador', bd: c.id === s.thread ? GREEN : '#DCDDD7',
+          preview: last ? (last.from_store ? 'Você: ' : '') + (last.product_id ? 'Perguntou sobre ' + prodName(last.product_id) : last.image_path ? 'Imagem' : last.body) : 'Sem mensagens',
+          open: function () { self.setState({ thread: c.id }); } };
+      }),
+      thread: { buyer: cur && cur.profiles ? cur.profiles.name : '',
+        msgs: (cur ? cur.messages : []).map(function (m) {
+          var src = m.image_path ? s.imgUrls[m.image_path] || '' : '';
+          if (m.image_path && !src) faltam.push(m.image_path);
+          return { text: m.product_id ? 'Perguntou sobre: ' + prodName(m.product_id) : m.body, justify: m.from_store ? 'flex-end' : 'flex-start',
+            bg: m.from_store ? GREEN : '#F0F1EC', fg: m.from_store ? '#FFFFFF' : INK, isText: !m.image_path, isImage: !!m.image_path, src: src };
+        }) },
+      onReplyPhoto: run(async function (e) {
+        var file = e && e.target && e.target.files && e.target.files[0];
+        if (e && e.target) e.target.value = '';
+        var st = self.s(), c = st.convs.find(function (x) { return x.id === st.thread; });
+        if (!file || !c) return;
+        var blob = await reduzirFoto(file);
+        var path = c.id + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.jpg';
+        var up = await sb.storage.from('conversas').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+        if (up.error) throw up.error;
+        var r = await sb.from('messages').insert({ conversation_id: c.id, sender_id: st.me.id, from_store: true, body: '', image_path: path }).select().single();
+        if (r.error) throw r.error;
+        var urls = Object.assign({}, self.s().imgUrls); urls[path] = URL.createObjectURL(blob);
+        self.setState({ imgUrls: urls, convs: self.s().convs.map(function (x) { return x.id === c.id && !x.messages.some(function (m) { return m.id === r.data.id; }) ? Object.assign({}, x, { messages: x.messages.concat([r.data]) }) : x; }) });
+        self.flash('Imagem enviada.');
+      }),
+      reply: s.reply, replyPlaceholder: 'Responder como ' + store.name,
+      onReply: function (e) { self.setState({ reply: e.target.value }); },
+      sendReply: run(async function () {
+        var st = self.s(), t = st.reply.trim(), c = st.convs.find(function (x) { return x.id === st.thread; });
+        if (!t || !c) return;
+        self.setState({ reply: '' });
+        var r = await sb.from('messages').insert({ conversation_id: c.id, sender_id: st.me.id, from_store: true, body: t }).select().single();
+        if (r.error) { self.setState({ reply: t }); throw r.error; }
+        self.setState({ convs: self.s().convs.map(function (x) { return x.id === c.id && !x.messages.some(function (m) { return m.id === r.data.id; }) ? Object.assign({}, x, { messages: x.messages.concat([r.data]) }) : x; }) });
+      }),
+
+      // convites
+      inviteGroups: [
+        invOpt('kind', 'Tipo', [['codigo', 'Código'], ['link', 'Link'], ['individual', 'Individual']]),
+        invOpt('approval', 'Entrada', [['automatica', 'Automática'], ['manual', 'Manual']])
+      ],
+      inviteNeedsEmail: s.inv.kind === 'individual', inv: s.inv, onInviteEmail: setIn('inv', 'email'),
+      createInvite: run(async function () {
+        var i = self.s().inv;
+        // sem limite de usos e sem validade: vale até ser revogado
+        var r = await sb.rpc('create_invite', { p_store: s.storeId, p_kind: i.kind, p_approval: i.approval, p_email: i.email.trim() || null });
+        if (r.error) throw r.error;
+        await self.loadAll();
+        self.flash('Convite ' + r.data.code + ' criado: permanente, sem limite de usos, para todas as lojas do clube.');
+      }),
+      hasPending: s.pending.length > 0,
+      pending: s.pending.map(function (m) {
+        var decide = function (status, msg) {
+          return run(async function () {
+            var r = await sb.rpc('set_member_status', { p_group: s.store.group_id, p_user: m.user_id, p_status: status });
+            if (r.error) throw r.error;
+            await self.loadAll();
+            self.flash(msg);
+          });
+        };
+        var nm = (m.profiles && m.profiles.name) || 'Sem nome';
+        return { name: nm, contact: m.profiles ? m.profiles.contact : '', code: m.invites ? m.invites.code : '—',
+          approve: decide('ativo', nm + ' agora é membro do clube.'), reject: decide('recusado', 'Entrada de ' + nm + ' recusada.') };
+      }),
+      inviteRows: s.invites.map(function (v) {
+        var expired = !!v.expires_at && new Date(v.expires_at) < new Date(), full = v.max_uses != null && v.uses >= v.max_uses;
+        var inactive = v.revoked || expired || full;
+        return { code: v.code + (v.email ? ' · ' + v.email : ''), kind: KINDS[v.kind], uses: v.max_uses == null ? v.uses + (v.uses === 1 ? ' uso · sem limite' : ' usos · sem limite') : v.uses + ' de ' + v.max_uses,
+          until: v.expires_at ? dia(v.expires_at) : 'Permanente',
+          approval: v.approval === 'manual' ? 'Manual' : 'Automática', active: !inactive, inactive: inactive,
+          inactiveLabel: v.revoked ? 'Revogado' : expired ? 'Expirado' : 'Esgotado', rowColor: inactive ? MUTED : INK,
+          revoke: run(async function () {
+            var r = await sb.from('invites').update({ revoked: true }).eq('id', v.id);
+            if (r.error) throw r.error;
+            await self.loadAll();
+            self.flash('Convite ' + v.code + ' revogado.');
+          }) };
+      }),
+
+      // cupons
+      cp: s.cp, onCpCode: setIn('cp', 'code'), onCpKind: setIn('cp', 'kind'), onCpValue: setIn('cp', 'value'),
+      onCpMin: setIn('cp', 'min'), onCpDays: setIn('cp', 'days'), onCpLimit: setIn('cp', 'limit'),
+      createCoupon: run(async function () {
+        var c = self.s().cp, code = c.code.trim().toUpperCase();
+        if (!/^[A-Z0-9]{3,20}$/.test(code)) throw new Error('Código com 3 a 20 letras ou números, sem espaços.');
+        var value = c.kind === 'percentual' ? parseInt(c.value, 10) : centavos(c.value);
+        if (!(value > 0) || (c.kind === 'percentual' && value > 100)) throw new Error('Informe um desconto válido.');
+        var min = c.min ? centavos(c.min) : 0, days = parseInt(c.days, 10) || 30, limit = parseInt(c.limit, 10) || null;
+        var r = await sb.from('coupons').insert({ store_id: s.storeId, code: code, kind: c.kind, value: value, min_cents: isNaN(min) ? 0 : min,
+          ends_at: new Date(Date.now() + days * 864e5).toISOString(), max_uses: limit });
+        if (r.error) throw new Error(r.error.code === '23505' ? 'Já existe um cupom com esse código.' : msgErro(r.error));
+        self.setState({ cp: CP0 });
+        await self.loadAll();
+        self.flash('Cupom ' + code + ' criado.');
+      }),
+      coupons: s.coupons.map(function (c) {
+        var expired = c.ends_at && new Date(c.ends_at) < new Date();
+        var on = c.active && !expired;
+        return { name: c.code, value: c.kind === 'percentual' ? c.value + '% de desconto' : brl(c.value) + ' de desconto',
+          rules: [c.min_cents ? 'Compra mínima ' + brl(c.min_cents) : 'Sem compra mínima', c.ends_at ? 'Válido até ' + dia(c.ends_at) : 'Sem validade'],
+          usage: c.max_uses ? c.uses + ' de ' + c.max_uses + ' usos' : c.uses + ' usos, sem limite',
+          pct: c.max_uses ? Math.min(100, Math.round(c.uses / c.max_uses * 100)) + '%' : '0%',
+          statusLabel: expired ? 'Expirado' : c.active ? 'Ativo' : 'Pausado', badgeBg: on ? '#E3EEE9' : '#ECEDE8', badgeFg: on ? '#123B2E' : MUTED,
+          toggleLabel: c.active ? 'Pausar' : 'Reativar',
+          toggle: run(async function () {
+            var r = await sb.from('coupons').update({ active: !c.active }).eq('id', c.id);
+            if (r.error) throw r.error;
+            await self.loadAll();
+          }) };
+      }),
+      combine: !!(s.store && s.store.allow_coupon_with_points),
+      toggleCombine: run(function () { return updStore({ allow_coupon_with_points: !s.store.allow_coupon_with_points }); }),
+
+      // fidelidade
+      loyaltyRules: [
+        { label: 'Modalidade', value: 'Pontos' }, { label: 'Acúmulo', value: prog.points_per_real + (prog.points_per_real === 1 ? ' ponto' : ' pontos') + ' por R$ 1' },
+        { label: 'Resgate', value: prog.redeem_points + ' pontos = ' + brl(prog.redeem_value_cents) },
+        { label: 'Validade', value: prog.validity_months + ' meses' }, { label: 'Crédito', value: 'Na conclusão do pedido' }
+      ],
+      editingLoyalty: s.editingLoyalty, loyaltyEditLabel: s.editingLoyalty ? 'Fechar' : 'Editar regras',
+      toggleLoyaltyEdit: function () {
+        self.setState({ editingLoyalty: !s.editingLoyalty,
+          lp: { perReal: String(prog.points_per_real), points: String(prog.redeem_points), value: reais(prog.redeem_value_cents), months: String(prog.validity_months) } });
+      },
+      lp: s.lp, onLpPerReal: setIn('lp', 'perReal'), onLpPoints: setIn('lp', 'points'), onLpValue: setIn('lp', 'value'), onLpMonths: setIn('lp', 'months'),
+      lpPreview: (function () {
+        var a = parseInt(s.lp.perReal, 10), b = parseInt(s.lp.points, 10), c = centavos(s.lp.value);
+        return a > 0 && b > 0 && c > 0 ? 'Prévia: cada R$ 1 vale ' + a + (a === 1 ? ' ponto' : ' pontos') + '; ' + b + ' pontos viram ' + brl(c) + ' de desconto.' : '';
+      })(),
+      saveLoyalty: run(async function () {
+        var l = self.s().lp, a = parseInt(l.perReal, 10), b = parseInt(l.points, 10), c = centavos(l.value), d = parseInt(l.months, 10);
+        if (!(a >= 1 && a <= 100)) throw new Error('Pontos por R$ 1: de 1 a 100.');
+        if (!(b > 0)) throw new Error('Informe quantos pontos o membro precisa para resgatar.');
+        if (!(c > 0)) throw new Error('Informe o valor do resgate.');
+        if (!(d >= 1 && d <= 120)) throw new Error('Validade: de 1 a 120 meses.');
+        var r = await sb.from('loyalty_programs').update({ points_per_real: a, redeem_points: b, redeem_value_cents: c, validity_months: d })
+          .eq('store_id', s.storeId).select().single();
+        if (r.error) throw r.error;
+        self.setState({ editingLoyalty: false, program: r.data });
+        self.flash('Regras do cartão fidelidade salvas. Valem para os próximos pedidos.');
+      }),
+      adj: s.adj, onAdjMember: setIn('adj', 'member'), onAdjPts: setIn('adj', 'pts'), onAdjReason: setIn('adj', 'reason'),
+      memberQuery: s.memberQuery, onMemberQuery: function (e) { self.setState({ memberQuery: e.target.value }); },
+      adjMemberName: (function () { var m = s.members.find(function (x) { return x.user_id === s.adj.member; }); return m ? ((m.profiles && m.profiles.name) || 'membro') : 'escolha abaixo'; })(),
+      memberOptions: s.members.filter(function (m) {
+        var q = s.memberQuery.trim().toLowerCase(), p = m.profiles || {};
+        return !q || ((p.name || '') + ' ' + (p.contact || '')).toLowerCase().indexOf(q) >= 0;
+      }).slice(0, 12).map(function (m) {
+        var p = m.profiles || {};
+        return Object.assign({ name: p.name || p.contact || 'Sem nome', pick: function () { self.setState({ adj: Object.assign({}, self.s().adj, { member: m.user_id }) }); } }, pill(m.user_id === s.adj.member));
+      }),
+      saveAdj: run(async function () {
+        var a = self.s().adj;
+        if (!a.member) throw new Error('Escolha o membro.');
+        var r = await sb.rpc('adjust_points', { p_store: s.storeId, p_user: a.member, p_points: parseInt(a.pts, 10) || 0, p_reason: a.reason });
+        if (r.error) throw r.error;
+        self.setState({ adj: { member: a.member, pts: '', reason: '' } });
+        await self.loadAll();
+        self.flash('Ajuste registrado no extrato do membro.');
+      }),
+      ledgerRows: s.ledger.map(function (l) {
+        return { date: dia(l.created_at), member: (l.profiles && l.profiles.name) || '—', kind: KIND[l.kind], origin: l.reason,
+          ptsLabel: (l.points > 0 ? '+' : '−') + Math.abs(l.points), color: l.points > 0 ? GREEN : PROMO };
+      }),
+
+      // pagamentos
+      pixStatus: !(s.store && s.store.online_payment) ? (s.store && s.store.pix_key ? 'Chave cadastrada. Falta a administração liberar o pagamento online.' : 'Pagamento online ainda não liberado pela administração. Você já pode cadastrar a chave.')
+        : s.store.pix_key ? 'Pix ativo no app: ' + s.store.pix_key : 'Pagamento online liberado: cadastre a chave para receber Pix pelo app.',
+      pixColor: s.store && s.store.online_payment && s.store.pix_key ? GREEN : s.store && s.store.online_payment ? PROMO : MUTED,
+      hasPixKey: !!(s.store && s.store.pix_key),
+      pixForm: pixForm, onPixKey: setPix('key'), onPixName: setPix('name'), onPixCity: setPix('city'),
+      pixPlaceholder: (PIX_TYPES.find(function (t) { return t[0] === pixForm.type; }) || PIX_TYPES[0])[2],
+      pixTypes: PIX_TYPES.map(function (t) { return Object.assign({ label: t[1], pick: setPix('type', t[0]) }, pill(pixForm.type === t[0])); }),
+      savePix: run(async function () {
+        var f = Object.assign({}, pixForm, self.s().pix || {});
+        var r = await sb.rpc('set_store_pix', { p_store: s.storeId, p_type: f.type, p_key: f.key, p_name: f.name, p_city: f.city });
+        if (r.error) throw r.error;
+        self.setState({ pix: null });
+        await self.loadAll();
+        self.flash('Chave Pix salva.' + (self.s().store.online_payment ? ' O Pix já aparece no app.' : ' Ela vale assim que a administração liberar o pagamento online.'));
+      }),
+      removePix: run(async function () {
+        var r = await sb.rpc('set_store_pix', { p_store: s.storeId, p_type: '', p_key: '', p_name: '', p_city: '' });
+        if (r.error) throw r.error;
+        self.setState({ pix: null });
+        await self.loadAll();
+        self.flash('Chave Pix removida. O app volta a oferecer só o pagamento na loja.');
+      }),
+      // entrega: liberada pela administração; a loja liga, desliga e define a taxa (zero = a combinar)
+      deliveryEnabled: !!(s.store && s.store.delivery_enabled), deliveryOn: !!(s.store && s.store.delivery),
+      deliveryStatus: !(s.store && s.store.delivery_enabled) ? 'Entrega ainda não liberada pela administração do clube.'
+        : s.store.delivery ? 'Entrega oferecida no app · ' + (s.store.delivery_fee_cents ? 'taxa ' + brl(s.store.delivery_fee_cents) : 'taxa a combinar') : 'Entrega liberada, mas desligada: o app oferece só retirada.',
+      deliveryColor: s.store && s.store.delivery_enabled && s.store.delivery ? GREEN : MUTED,
+      toggleDelivery: run(function () { return updStore({ delivery: !s.store.delivery }); }),
+      feeDraft: s.feeDraft != null ? s.feeDraft : (s.store && s.store.delivery_fee_cents ? reais(s.store.delivery_fee_cents) : ''),
+      onFee: function (e) { self.setState({ feeDraft: e.target.value }); },
+      saveFee: run(async function () {
+        var txt = self.s().feeDraft, v = txt == null || String(txt).trim() === '' ? 0 : centavos(txt);
+        if (isNaN(v) || v < 0) throw new Error('Informe a taxa em reais, ou deixe vazio para combinar.');
+        await updStore({ delivery_fee_cents: v });
+        self.setState({ feeDraft: null });
+        self.flash(v ? 'Taxa de entrega de ' + brl(v) + ' salva.' : 'Entrega com taxa a combinar.');
+      }),
+      online: !!(s.store && s.store.online_payment), offlineOnly: !(s.store && s.store.online_payment),
+      payMethods: [['accept_offline', 'Pagamento na loja ou na entrega', true]].concat(s.store && s.store.online_payment
+        ? [['accept_pix', 'Pix pelo app', true]] : []).map(function (m) {
+        return { label: m[1], on: !!(s.store && s.store[m[0]]), toggle: run(async function () {
+          var patch = {}; patch[m[0]] = !s.store[m[0]];
+          try { await updStore(patch); } catch (e) { throw new Error(e.code === '23514' ? 'Mantenha pelo menos um meio de pagamento ativo.' : msgErro(e)); }
+        }) };
+      }),
+      recon: s.payments.map(function (p) {
+        var st = PAYST[p.status] || [p.status, '#ECEDE8', MUTED];
+        return { id: p.order_id, tx: p.provider_payment_id || '—',
+          provider: p.provider === 'pix_direto' ? 'Pix direto' : p.provider === 'simulado' ? 'Teste' : 'Mercado Pago',
+          totalLabel: brl(p.amount_cents), label: st[0], bg: st[1], fg: st[2], canRefund: p.status === 'refund_pending',
+          refund: run(async function () {
+            var r = await sb.rpc('mark_pix_refunded', { p_order: p.order_id });
+            if (r.error) throw r.error;
+            await self.loadAll();
+            self.flash('Devolução do pedido #' + p.order_id + ' registrada.');
+          }) };
+      }),
+
+      // equipe
+      staffCards: s.team.map(function (t) {
+        var me = s.me && t.user_id === s.me.id;
+        return { name: (t.profiles && t.profiles.name) || '—', contact: t.profiles ? t.profiles.contact : '', roleLabel: t.role === 'gestor' ? 'gestor' : 'atendente',
+          isAtendente: t.role === 'atendente', removable: !me,
+          remove: run(async function () {
+            var r = await sb.from('store_staff').delete().eq('store_id', s.storeId).eq('user_id', t.user_id);
+            if (r.error) throw r.error;
+            await self.loadAll();
+            self.flash('Removido da equipe.');
+          }),
+          perms: PERMS.map(function (p) {
+            var on = !!(t.perms && t.perms[p[0]]);
+            return { label: p[1], on: on, toggle: run(async function () {
+              var perms = Object.assign({}, t.perms); perms[p[0]] = !on;
+              var r = await sb.from('store_staff').update({ perms: perms }).eq('store_id', s.storeId).eq('user_id', t.user_id);
+              if (r.error) throw r.error;
+              await self.loadAll();
+            }) };
+          }) };
+      }),
+      staffEmail: s.staffEmail, staffRole: s.staffRole,
+      onStaffEmail: function (e) { self.setState({ staffEmail: e.target.value }); },
+      onStaffRole: function (e) { self.setState({ staffRole: e.target.value }); },
+      addStaff: run(async function () {
+        var r = await sb.rpc('add_staff', { p_store: s.storeId, p_email: self.s().staffEmail, p_role: self.s().staffRole });
+        if (r.error) throw r.error;
+        self.setState({ staffEmail: '' });
+        await self.loadAll();
+        self.flash('Pessoa adicionada à equipe.');
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

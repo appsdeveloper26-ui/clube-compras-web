@@ -1,0 +1,1607 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F5F5F1">
+<title>App do comprador</title>
+<!-- tema claro/escuro: "auto" segue o aparelho; a escolha fica guardada neste aparelho -->
+<style>
+html[data-tema="escuro"]{filter:invert(1) hue-rotate(180deg);background:#0B0C0D;color-scheme:light}
+html[data-tema="escuro"] img,html[data-tema="escuro"] video,html[data-tema="escuro"] [style*="url("],html[data-tema="escuro"] [data-tema-fixo]{filter:invert(1) hue-rotate(180deg)}
+</style>
+<script>
+(function () {
+  var escolha = null, sistema = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  try { escolha = localStorage.getItem('tema'); } catch (e) {}
+  function aplicar() {
+    var escuro = escolha === 'escuro' || (escolha !== 'claro' && !!(sistema && sistema.matches));
+    document.documentElement.setAttribute('data-tema', escuro ? 'escuro' : 'claro');
+    var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', escuro ? '#0B0C0D' : '#F5F5F1');
+  }
+  aplicar();
+  if (sistema && sistema.addEventListener) sistema.addEventListener('change', aplicar);
+  window.__tema = {
+    get: function () { return escolha === 'claro' || escolha === 'escuro' ? escolha : 'auto'; },
+    set: function (v) {
+      escolha = v === 'claro' || v === 'escuro' ? v : null;
+      try { if (escolha) localStorage.setItem('tema', escolha); else localStorage.removeItem('tema'); } catch (e) {}
+      aplicar();
+    }
+  };
+})();
+</script>
+<script src="./config.js"></script>
+<script src="./vendor/supabase.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face{font-family:Manrope;font-style:normal;font-weight:400 800;font-display:swap;src:url(fonts/manrope-latin.woff2) format("woff2")}
+html,body{margin:0;background:#F5F5F1;overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+a{color:#1E5B48}a:hover{color:#123B2E}
+button{font-family:inherit;cursor:pointer}
+input{font-family:inherit}
+button:disabled{cursor:not-allowed}
+</style>
+</helmet>
+<div style="width: 100%; height: 100vh; height: 100dvh; box-sizing: border-box; padding-top: env(safe-area-inset-top); display: flex; flex-direction: column; background: #F5F5F1; color: #15171A; font-family: Manrope, system-ui, sans-serif; font-size: 15px; overflow: hidden; position: relative">
+
+<!-- ============ CARREGANDO ============ -->
+<sc-if value="{{is.carregando}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; text-align: center">
+<div style="width: 56px; height: 56px; border-radius: 16px; background: #1E5B48; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px">CC</div>
+<p style="margin: 0; color: #5B616B">{{loadingText}}</p>
+<sc-if value="{{hasLoadError}}" hint-placeholder-val="{{ false }}"><button onClick="{{retryLoad}}" style="height: 44px; padding: 0 18px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 700">Tentar de novo</button></sc-if>
+</div>
+</sc-if>
+
+<!-- ============ PENDENTE ============ -->
+<sc-if value="{{is.pendente}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 16px; padding: 24px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Entrada em análise</h1>
+<p style="margin: 0; color: #5B616B; line-height: 1.5">Este convite exige aprovação de uma loja do grupo. Você recebe acesso assim que aprovarem.</p>
+<button onClick="{{retryLoad}}" style="height: 52px; border: 0; border-radius: 14px; background: #1E5B48; color: #FFFFFF; font-size: 16px; font-weight: 700">Verificar de novo</button>
+<button onClick="{{signOut}}" style="height: 44px; border: 0; background: transparent; color: #1E5B48; font-weight: 700">Sair</button>
+</div>
+</sc-if>
+
+<!-- ============ CONVITE ============ -->
+<sc-if value="{{is.convite}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 56px 24px 32px; gap: 24px; overflow-y: auto">
+<div style="display: flex; flex-direction: column; gap: 20px">
+<div style="width: 56px; height: 56px; border-radius: 16px; background: #1E5B48; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px">CC</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<p style="margin: 0; font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #1E5B48">Convite pessoal</p>
+<h1 style="margin: 0; font-size: 30px; line-height: 1.15; font-weight: 800">{{inviteTitle}}</h1>
+<p style="margin: 0; color: #5B616B; line-height: 1.5">O convite libera todas as lojas do grupo. Catálogo, conversas e compras ficam visíveis só para membros.</p>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+<label for="codigo" style="font-size: 13px; font-weight: 700; color: #5B616B">Código do convite</label>
+<input id="codigo" autocapitalize="characters" autocorrect="off" autocomplete="off" spellcheck="false" value="{{inviteCode}}" onChange="{{onInviteCode}}" style="height: 48px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 14px; font-size: 17px; font-weight: 700; letter-spacing: 0.06em; background: #FAFAF7">
+<sc-if value="{{hasInviteLine}}" hint-placeholder-val="{{ false }}"><p style="margin: 0; font-size: 13px; color: #5B616B">{{inviteLine}}</p></sc-if>
+<sc-if value="{{inviteInvalid}}" hint-placeholder-val="{{ false }}">
+<p style="margin: 0; font-size: 13px; font-weight: 600; color: #A3262A">Código inválido ou expirado. Peça um novo convite a uma loja do grupo.</p>
+</sc-if>
+</div>
+<sc-if value="{{noInvite}}" hint-placeholder-val="{{ false }}">
+<div style="background: #FBEADF; border-radius: 12px; padding: 14px 16px; font-size: 14px; line-height: 1.5; color: #6B3008">Sem convite não é possível ver as vitrines nem entrar no grupo. Peça um convite a uma das lojas participantes.</div>
+</sc-if>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px">
+<button onClick="{{acceptInvite}}" disabled="{{busy}}" style="height: 52px; border: 0; border-radius: 14px; background: #1E5B48; color: #FFFFFF; font-size: 16px; font-weight: 700">{{acceptLabel}}</button>
+<button onClick="{{goEntrar}}" style="height: 52px; border: 1px solid #1E5B48; border-radius: 14px; background: #FFFFFF; color: #1E5B48; font-size: 16px; font-weight: 700">Já sou membro · entrar</button>
+<button onClick="{{openVitrine}}" disabled="{{busy}}" style="height: 52px; border: 1px solid #C9CBC4; border-radius: 14px; background: #FFFFFF; color: #15171A; font-size: 16px; font-weight: 700">Conhecer as lojas</button>
+<button onClick="{{goSolicitarGeral}}" style="height: 44px; border: 0; background: transparent; color: #1E5B48; font-size: 15px; font-weight: 700">Não tenho convite · pedir o meu</button>
+</div>
+</div>
+</sc-if>
+
+<!-- ============ ENTRAR (MEMBRO) ============ -->
+<sc-if value="{{is.entrar}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; display: flex; flex-direction: column; padding: 16px 24px 32px; gap: 20px; overflow-y: auto">
+<button onClick="{{goConvite}}" aria-label="Voltar" style="width: 44px; height: 44px; border: 0; background: transparent; padding: 0; display: flex; align-items: center; color: #15171A"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Bem-vindo de volta</h1>
+<p style="margin: 0; color: #5B616B; line-height: 1.5">Quem entrou com convite tem passaporte vitalício: seu cadastro fica guardado no clube. Entre com o mesmo e-mail para recuperar o acesso, os pedidos e os pontos.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<label for="entrar-email" style="font-size: 13px; font-weight: 700; color: #5B616B">E-mail</label>
+<div style="display: flex; gap: 8px">
+<input id="entrar-email" type="email" autocapitalize="none" autocomplete="email" value="{{contact}}" onChange="{{onContact}}" placeholder="voce@email.com" style="flex: 1; min-width: 0; height: 48px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 14px; font-size: 16px; background: #FFFFFF; color: #15171A">
+<button onClick="{{sendLoginCode}}" disabled="{{busy}}" style="height: 48px; padding: 0 14px; border: 1px solid #1E5B48; border-radius: 12px; background: #FFFFFF; color: #1E5B48; font-weight: 700; font-size: 14px">Enviar código</button>
+</div>
+<sc-if value="{{codeSent}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 8px; padding-top: 4px">
+<label for="entrar-otp" style="font-size: 13px; font-weight: 700; color: #5B616B">Código de 6 dígitos</label>
+<input id="entrar-otp" maxlength="6" autocomplete="one-time-code" value="{{otp}}" onChange="{{onOtp}}" inputmode="numeric" placeholder="000000" style="height: 48px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 14px; font-size: 20px; letter-spacing: 0.3em; background: #FFFFFF; color: #15171A">
+<p style="margin: 0; font-size: 13px; color: #5B616B">Enviamos o código para {{contact}}. Ele vale por 1 hora.</p>
+</div>
+</sc-if>
+<sc-if value="{{hasLoginMsg}}" hint-placeholder-val="{{ false }}"><p style="margin: 0; font-size: 13px; font-weight: 600; color: #A3262A">{{loginMsg}}</p></sc-if>
+</div>
+<button onClick="{{finishLogin}}" disabled="{{cannotLogin}}" style="height: 52px; border: 0; border-radius: 14px; background: {{loginBg}}; color: #FFFFFF; font-size: 16px; font-weight: 700; flex-shrink: 0">{{loginLabel}}</button>
+</div>
+</sc-if>
+
+<!-- ============ PEDIR CONVITE ============ -->
+<sc-if value="{{is.solicitar}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; display: flex; flex-direction: column; padding: 16px 24px 32px; gap: 18px; overflow-y: auto">
+<button onClick="{{reqBack}}" aria-label="Voltar" style="width: 44px; height: 44px; border: 0; background: transparent; padding: 0; display: flex; align-items: center; color: #15171A"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+<sc-if value="{{reqNotSent}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Pedir convite</h1>
+<p style="margin: 0; color: #5B616B; line-height: 1.5">Faça o seu pré-cadastro. Quando a loja ou a administração aprovar, você entra com o seu e-mail e já pode comprar.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<label for="req-destino" style="font-size: 13px; font-weight: 700; color: #5B616B">Pedir para</label>
+<select id="req-destino" value="{{reqStore}}" onChange="{{onReqStore}}" style="height: 48px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 12px; font-size: 16px; background: #FFFFFF; color: #15171A">
+<sc-for list="{{reqOptions}}" as="o" hint-placeholder-count="3"><option value="{{o.value}}">{{o.label}}</option></sc-for>
+</select>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<label for="req-nome" style="font-size: 13px; font-weight: 700; color: #5B616B">Nome</label>
+<input id="req-nome" autocomplete="name" value="{{reqName}}" onChange="{{onReqName}}" placeholder="Seu nome completo" style="height: 48px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 14px; font-size: 16px; background: #FFFFFF; color: #15171A">
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<label for="req-email" style="font-size: 13px; font-weight: 700; color: #5B616B">E-mail</label>
+<input id="req-email" type="email" autocapitalize="none" autocomplete="email" value="{{reqEmail}}" onChange="{{onReqEmail}}" placeholder="voce@email.com" style="height: 48px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 14px; font-size: 16px; background: #FFFFFF; color: #15171A">
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<label for="req-telefone" style="font-size: 13px; font-weight: 700; color: #5B616B">Telefone (WhatsApp)</label>
+<input id="req-telefone" type="tel" autocomplete="tel" inputmode="tel" value="{{reqPhone}}" onChange="{{onReqPhone}}" placeholder="(11) 98888-7777" style="height: 48px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 14px; font-size: 16px; background: #FFFFFF; color: #15171A">
+</div>
+<p style="margin: 0; font-size: 13px; color: #5B616B; line-height: 1.5">Seus dados vão só para quem você escolheu acima, para analisar o pedido (LGPD).</p>
+<button onClick="{{sendRequest}}" disabled="{{busy}}" style="height: 52px; border: 0; border-radius: 14px; background: #1E5B48; color: #FFFFFF; font-size: 16px; font-weight: 700; flex-shrink: 0">{{reqLabel}}</button>
+</sc-if>
+<sc-if value="{{reqSent}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="width: 56px; height: 56px; border-radius: 16px; background: #E3EEE9; color: #1E5B48; display: flex; align-items: center; justify-content: center"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></div>
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Pedido enviado</h1>
+<p style="margin: 0; color: #5B616B; line-height: 1.5">{{reqSentText}}</p>
+<button onClick="{{goEntrarAprovado}}" style="height: 52px; border: 0; border-radius: 14px; background: #1E5B48; color: #FFFFFF; font-size: 16px; font-weight: 700">Já fui aprovado · entrar</button>
+<button onClick="{{openVitrine}}" style="height: 52px; border: 1px solid #C9CBC4; border-radius: 14px; background: #FFFFFF; color: #15171A; font-size: 16px; font-weight: 700">Continuar vendo as lojas</button>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<!-- ============ CADASTRO ============ -->
+<sc-if value="{{is.cadastro}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; display: flex; flex-direction: column; padding: 16px 24px 32px; gap: 20px; overflow-y: auto">
+<button onClick="{{goConvite}}" aria-label="Voltar" style="width: 44px; height: 44px; border: 0; background: transparent; padding: 0; display: flex; align-items: center; color: #15171A"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800">Entre no clube</h1>
+<p style="margin: 0; color: #5B616B">{{signupSubtitle}}</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<label for="nome" style="font-size: 13px; font-weight: 700; color: #5B616B">Nome</label>
+<input id="nome" value="{{name}}" onChange="{{onName}}" placeholder="Como as lojas vão te chamar" style="height: 48px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 14px; font-size: 16px; background: #FFFFFF">
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<label for="contato" style="font-size: 13px; font-weight: 700; color: #5B616B">E-mail</label>
+<div style="display: flex; gap: 8px">
+<input id="contato" type="email" autocapitalize="none" autocomplete="email" value="{{contact}}" onChange="{{onContact}}" placeholder="voce@email.com" style="flex: 1; min-width: 0; height: 48px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 14px; font-size: 16px; background: #FFFFFF">
+<button onClick="{{sendCode}}" disabled="{{busy}}" style="height: 48px; padding: 0 14px; border: 1px solid #1E5B48; border-radius: 12px; background: #FFFFFF; color: #1E5B48; font-weight: 700; font-size: 14px">Enviar código</button>
+</div>
+<sc-if value="{{codeSent}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 8px; padding-top: 4px">
+<label for="otp" style="font-size: 13px; font-weight: 700; color: #5B616B">Código de 6 dígitos</label>
+<input id="otp" maxlength="6" autocomplete="one-time-code" value="{{otp}}" onChange="{{onOtp}}" inputmode="numeric" placeholder="000000" style="height: 48px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 14px; font-size: 18px; letter-spacing: 0.3em; background: #FFFFFF">
+<p style="margin: 0; font-size: 13px; color: #5B616B">Enviamos o código para {{contact}}. Ele vale por 1 hora.</p>
+</div>
+</sc-if>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 10px">
+<p style="margin: 0; font-weight: 800">Regras do {{groupName}}</p>
+<p style="margin: 0; font-size: 14px; line-height: 1.55; color: #5B616B">Cada compra é feita e paga direto à loja escolhida. Conversas são privadas entre você e a loja e podem ser revisadas pela administração em caso de denúncia. Seus dados seguem a política de privacidade do clube (LGPD).</p>
+<label style="display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; font-weight: 600"><input type="checkbox" checked="{{accepted}}" onChange="{{toggleAccepted}}" style="width: 20px; height: 20px; accent-color: #1E5B48">Li e aceito as regras e a política de privacidade</label>
+</div>
+<button onClick="{{finishSignup}}" disabled="{{cannotSignup}}" style="height: 52px; border: 0; border-radius: 14px; background: {{signupBg}}; color: #FFFFFF; font-size: 16px; font-weight: 700; flex-shrink: 0">{{signupLabel}}</button>
+</div>
+</sc-if>
+
+<!-- ============ INÍCIO (GRUPO) ============ -->
+<sc-if value="{{is.grupo}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 22px; padding: 20px 20px 24px">
+<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<p style="margin: 0; font-size: 13px; color: #5B616B">{{hello}}</p>
+<h1 style="margin: 0; font-size: 24px; font-weight: 800">{{groupName}}</h1>
+</div>
+<div style="display: flex; gap: 8px; flex-shrink: 0">
+<button id="tema" onClick="{{cycleTheme}}" aria-label="{{temaLabel}}" title="{{temaLabel}}" style="width: 36px; height: 36px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #15171A; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg></button>
+<button onClick="{{headerAction}}" style="height: 36px; padding: 0 12px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #15171A; font-size: 13px; font-weight: 700; flex-shrink: 0">{{headerLabel}}</button>
+</div>
+</div>
+<sc-if value="{{isVisitor}}" hint-placeholder-val="{{ false }}">
+<div style="background: #FBEADF; border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #6B3008"><span style="font-weight: 800">Você está como visitante.</span> Veja as lojas e os produtos à vontade. Para comprar, peça o seu convite a uma loja ou à administração.</p>
+<button onClick="{{goSolicitarGeral}}" style="height: 44px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Pedir convite</button>
+</div>
+</sc-if>
+<div style="position: relative">
+<label for="busca" style="position: absolute; left: -9999px">Buscar produtos</label>
+<input id="busca" value="{{query}}" onChange="{{onQuery}}" placeholder="Buscar em todas as lojas" style="width: 100%; box-sizing: border-box; height: 48px; border: 1px solid #C9CBC4; border-radius: 14px; padding: 0 16px; font-size: 15px; background: #FFFFFF">
+</div>
+
+<sc-if value="{{hasQuery}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 10px">
+<p style="margin: 0; font-size: 13px; font-weight: 700; color: #5B616B">{{searchCount}}</p>
+<sc-for list="{{searchResults}}" as="p" hint-placeholder-count="2">
+<button onClick="{{p.open}}" style="display: flex; gap: 12px; align-items: center; text-align: left; border: 1px solid #DCDDD7; background: #FFFFFF; border-radius: 14px; padding: 10px; color: #15171A">
+<div style="width: 56px; height: 56px; border-radius: 10px; background: {{p.tint}}; flex-shrink: 0"></div>
+<div style="display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0">
+<span style="font-weight: 700">{{p.name}}</span>
+<span style="font-size: 13px; color: #5B616B">{{p.storeName}}</span>
+</div>
+<span style="font-weight: 800">{{p.priceLabel}}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{noQuery}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 22px">
+<sc-if value="{{hasHighlights}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 17px; font-weight: 800">Destaques do grupo</h2>
+<div style="display: flex; gap: 12px; overflow-x: auto; margin: 0 -20px; padding: 0 20px 4px">
+<sc-for list="{{highlights}}" as="p" hint-placeholder-count="3">
+<button onClick="{{p.open}}" style="flex: 0 0 150px; display: flex; flex-direction: column; gap: 8px; text-align: left; border: 1px solid #DCDDD7; background: #FFFFFF; border-radius: 16px; padding: 10px; color: #15171A">
+<div style="height: 120px; border-radius: 10px; background: {{p.tint}}; display: flex; align-items: flex-start; justify-content: flex-start; padding: 8px; box-sizing: border-box">
+<span style="font-size: 11px; font-weight: 800; background: #FFFFFF; color: {{p.tagColor}}; border-radius: 999px; padding: 4px 8px">{{p.tag}}</span>
+</div>
+<span style="font-weight: 700; font-size: 14px; line-height: 1.3">{{p.name}}</span>
+<span style="font-size: 12px; color: #5B616B">{{p.storeName}}</span>
+<span style="font-weight: 800">{{p.priceLabel}}</span>
+</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+<div style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 17px; font-weight: 800">Lojas do grupo</h2>
+<sc-for list="{{storeCards}}" as="st" hint-placeholder-count="3">
+<button onClick="{{st.open}}" style="display: flex; gap: 14px; align-items: center; text-align: left; border: 1px solid #DCDDD7; background: #FFFFFF; border-radius: 16px; padding: 14px; color: #15171A">
+<div style="width: 52px; height: 52px; border-radius: 14px; background: {{st.color}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 800; flex-shrink: 0">{{st.initials}}</div>
+<div style="display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0">
+<span style="font-weight: 800">{{st.name}}</span>
+<span style="font-size: 13px; color: #5B616B">{{st.cat}}</span>
+<span style="font-size: 12px; color: #5B616B">{{st.modes}}</span>
+</div>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5B616B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"></path></svg>
+</button>
+</sc-for>
+</div>
+<div style="background: #E3EEE9; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 6px">
+<p style="margin: 0; font-weight: 800; color: #123B2E">Regras do grupo</p>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #123B2E">{{groupRules}}</p>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<!-- ============ LOJA ============ -->
+<sc-if value="{{is.loja}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column">
+<div style="background: {{store.color}}; color: #FFFFFF; padding: 12px 20px 22px; display: flex; flex-direction: column; gap: 14px">
+<button onClick="{{goGrupo}}" aria-label="Voltar" style="width: 44px; height: 44px; border: 0; background: transparent; padding: 0; color: #FFFFFF; display: flex; align-items: center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+<div style="display: flex; gap: 14px; align-items: center">
+<div style="width: 60px; height: 60px; border-radius: 16px; background: #FFFFFF; color: {{store.color}}; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; flex-shrink: 0">{{store.initials}}</div>
+<div style="display: flex; flex-direction: column; gap: 3px">
+<h1 style="margin: 0; font-size: 22px; font-weight: 800">{{store.name}}</h1>
+<span style="font-size: 13px; opacity: 0.9">{{store.cat}}</span>
+</div>
+</div>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; opacity: 0.95">{{store.about}}</p>
+<div style="display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px">
+<span>{{store.hours}}</span><span>{{store.policy}}</span><span>{{store.modes}}</span>
+</div>
+<sc-if value="{{store.hasAddress}}" hint-placeholder-val="{{ false }}"><span style="font-size: 13px; opacity: 0.95">📍 {{store.address}}</span></sc-if>
+<sc-if value="{{store.hasContacts}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{store.contacts}}" as="c" hint-placeholder-count="2">
+<a href="{{c.href}}" target="_blank" rel="noopener" style="height: 36px; padding: 0 12px; border: 1px solid rgba(255,255,255,0.6); border-radius: 999px; color: #FFFFFF; font-size: 13px; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center">{{c.label}}</a>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{store.hasDocument}}" hint-placeholder-val="{{ false }}"><span style="font-size: 12px; opacity: 0.85">{{store.document}}</span></sc-if>
+<button onClick="{{openStoreChat}}" style="height: 44px; border: 0; border-radius: 12px; background: #FFFFFF; color: {{store.color}}; font-weight: 800; font-size: 15px">{{storeChatLabel}}</button>
+</div>
+<div style="padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; gap: 8px; overflow-x: auto; margin: 0 -20px; padding: 0 20px">
+<sc-for list="{{catChips}}" as="c" hint-placeholder-count="3">
+<button onClick="{{c.pick}}" style="flex-shrink: 0; height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid {{c.bd}}; background: {{c.bg}}; color: {{c.fg}}; font-weight: 700; font-size: 13px">{{c.label}}</button>
+</sc-for>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+<sc-for list="{{storeProducts}}" as="p" hint-placeholder-count="4">
+<button onClick="{{p.open}}" style="display: flex; flex-direction: column; gap: 6px; text-align: left; border: 1px solid #DCDDD7; background: #FFFFFF; border-radius: 16px; padding: 10px; color: #15171A">
+<div style="height: 130px; border-radius: 10px; background: {{p.tint}}; padding: 8px; box-sizing: border-box">
+<sc-if value="{{p.hasTag}}" hint-placeholder-val="{{ false }}"><span style="font-size: 11px; font-weight: 800; background: #FFFFFF; color: {{p.tagColor}}; border-radius: 999px; padding: 4px 8px">{{p.tag}}</span></sc-if>
+</div>
+<span style="font-weight: 700; font-size: 14px; line-height: 1.3">{{p.name}}</span>
+<div style="display: flex; gap: 6px; align-items: baseline">
+<span style="font-weight: 800">{{p.priceLabel}}</span>
+<sc-if value="{{p.hasOld}}" hint-placeholder-val="{{ false }}"><span style="font-size: 12px; color: #5B616B; text-decoration: line-through">{{p.oldLabel}}</span></sc-if>
+</div>
+<sc-if value="{{p.soldOut}}" hint-placeholder-val="{{ false }}"><span style="font-size: 12px; font-weight: 700; color: #A3262A">Indisponível</span></sc-if>
+<sc-if value="{{p.isService}}" hint-placeholder-val="{{ false }}"><span style="font-size: 12px; font-weight: 700; color: #1E5B48">Serviço</span></sc-if>
+</button>
+</sc-for>
+</div>
+</div>
+</div>
+</sc-if>
+
+<!-- ============ PRODUTO ============ -->
+<sc-if value="{{is.produto}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column">
+<div style="height: 300px; background: {{product.photoBg}}; position: relative; flex-shrink: 0; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 16px; box-sizing: border-box">
+<button onClick="{{goLoja}}" aria-label="Voltar para a loja" style="position: absolute; top: 12px; left: 12px; width: 44px; height: 44px; border: 0; border-radius: 999px; background: #FFFFFF; color: #15171A; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+<sc-if value="{{product.manyPhotos}}" hint-placeholder-val="{{ false }}">
+<button onClick="{{prevPhoto}}" aria-label="Foto anterior" style="position: absolute; left: 12px; top: 128px; width: 44px; height: 44px; border: 0; border-radius: 999px; background: rgba(255,255,255,0.85); color: #15171A; font-size: 22px">‹</button>
+<button onClick="{{nextPhoto}}" aria-label="Próxima foto" style="position: absolute; right: 12px; top: 128px; width: 44px; height: 44px; border: 0; border-radius: 999px; background: rgba(255,255,255,0.85); color: #15171A; font-size: 22px">›</button>
+<span style="font-size: 12px; font-weight: 700; color: #15171A; background: rgba(255,255,255,0.85); padding: 4px 10px; border-radius: 999px">{{product.photoCounter}}</span>
+</sc-if>
+</div>
+<div style="padding: 20px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 13px; font-weight: 700; color: #1E5B48">{{product.storeName}} · {{product.cat}}</span>
+<h1 style="margin: 0; font-size: 24px; font-weight: 800">{{product.name}}</h1>
+<div style="display: flex; gap: 8px; align-items: baseline">
+<span style="font-size: 22px; font-weight: 800">{{product.priceLabel}}</span>
+<sc-if value="{{product.hasOld}}" hint-placeholder-val="{{ false }}"><span style="color: #5B616B; text-decoration: line-through">{{product.oldLabel}}</span></sc-if>
+</div>
+<p style="margin: 0; color: #5B616B; line-height: 1.5">{{product.desc}}</p>
+<sc-if value="{{product.hasDeadline}}" hint-placeholder-val="{{ false }}"><span id="prazo-pagamento" style="font-size: 13px; font-weight: 700; color: #A04A12">{{product.deadlineLabel}}</span></sc-if>
+</div>
+<sc-if value="{{product.isService}}" hint-placeholder-val="{{ false }}">
+<p style="margin: 0; background: #E3EEE9; color: #123B2E; border-radius: 12px; padding: 12px 14px; font-size: 14px; line-height: 1.5">Serviço: depois de contratar, combine data e detalhes com a loja pela conversa.</p>
+</sc-if>
+<sc-if value="{{product.isProduct}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 13px; font-weight: 700; color: #5B616B">{{product.variantLabel}}</span>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{variantPills}}" as="v" hint-placeholder-count="3">
+<button onClick="{{v.pick}}" disabled="{{v.out}}" style="min-width: 52px; height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid {{v.bd}}; background: {{v.bg}}; color: {{v.fg}}; text-decoration: {{v.td}}; font-weight: 700">{{v.label}}</button>
+</sc-for>
+</div>
+<span style="font-size: 13px; color: {{stockColor}}; font-weight: 600">{{stockLabel}}</span>
+</div>
+</sc-if>
+<div style="display: flex; align-items: center; gap: 12px">
+<span style="font-size: 13px; font-weight: 700; color: #5B616B">Quantidade</span>
+<div style="display: flex; align-items: center; border: 1px solid #C9CBC4; border-radius: 12px; background: #FFFFFF">
+<button onClick="{{qtyDown}}" aria-label="Diminuir quantidade" style="width: 44px; height: 44px; border: 0; background: transparent; font-size: 20px; color: #15171A">−</button>
+<span style="min-width: 28px; text-align: center; font-weight: 800">{{qty}}</span>
+<button onClick="{{qtyUp}}" aria-label="Aumentar quantidade" style="width: 44px; height: 44px; border: 0; background: transparent; font-size: 20px; color: #15171A">+</button>
+</div>
+</div>
+<div style="display: flex; gap: 10px">
+<sc-if value="{{notVisitor}}" hint-placeholder-val="{{ true }}"><button onClick="{{askProduct}}" style="height: 52px; padding: 0 16px; border: 1px solid #1E5B48; border-radius: 14px; background: #FFFFFF; color: #1E5B48; font-weight: 700">Perguntar</button></sc-if>
+<button onClick="{{addToCart}}" style="flex: 1; height: 52px; border: 0; border-radius: 14px; background: #1E5B48; color: #FFFFFF; font-weight: 800; font-size: 16px">{{addLabel}}</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<!-- ============ SACOLA ============ -->
+<sc-if value="{{is.sacola}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding: 20px 20px 24px">
+<h1 style="margin: 0; font-size: 24px; font-weight: 800">Sacola</h1>
+<sc-if value="{{cartEmpty}}" hint-placeholder-val="{{ false }}">
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start">
+<p style="margin: 0; font-weight: 800">Sua sacola está vazia</p>
+<p style="margin: 0; color: #5B616B; font-size: 14px">Cada pedido reúne produtos de uma loja só.</p>
+<button onClick="{{goGrupo}}" style="height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 700">Ver lojas</button>
+</div>
+</sc-if>
+<sc-if value="{{cartFull}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; align-items: center; gap: 10px; font-size: 14px">
+<div style="width: 32px; height: 32px; border-radius: 9px; background: {{cartStore.color}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px">{{cartStore.initials}}</div>
+<span>Pedido em <b>{{cartStore.name}}</b> · uma loja por pedido</span>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; display: flex; flex-direction: column">
+<sc-for list="{{cartLines}}" as="l" hint-placeholder-count="2">
+<div style="display: flex; gap: 12px; padding: 12px; border-bottom: 1px solid #ECEDE8; align-items: center">
+<div style="width: 56px; height: 56px; border-radius: 10px; background: {{l.tint}}; flex-shrink: 0"></div>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+<span style="font-weight: 700; font-size: 14px">{{l.name}}</span>
+<span style="font-size: 12px; color: #5B616B">{{l.variant}} · {{l.unitLabel}}</span>
+<div style="display: flex; align-items: center; gap: 4px; margin-top: 4px">
+<button onClick="{{l.dec}}" aria-label="Diminuir" style="width: 32px; height: 32px; border: 1px solid #C9CBC4; border-radius: 8px; background: #FFFFFF; color: #15171A">−</button>
+<span style="min-width: 24px; text-align: center; font-weight: 800; font-size: 14px">{{l.qty}}</span>
+<button onClick="{{l.inc}}" aria-label="Aumentar" style="width: 32px; height: 32px; border: 1px solid #C9CBC4; border-radius: 8px; background: #FFFFFF; color: #15171A">+</button>
+</div>
+</div>
+<span style="font-weight: 800; font-size: 14px">{{l.totalLabel}}</span>
+</div>
+</sc-for>
+</div>
+
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 13px; font-weight: 700; color: #5B616B">Entrega ou retirada</span>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{fulfilOpts}}" as="o" hint-placeholder-count="2">
+<button onClick="{{o.pick}}" disabled="{{o.off}}" style="min-height: 56px; border-radius: 12px; border: 1px solid {{o.bd}}; background: {{o.bg}}; color: {{o.fg}}; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 8px 12px; text-align: left">
+<span style="font-weight: 800; font-size: 14px">{{o.label}}</span>
+<span style="font-size: 12px">{{o.sub}}</span>
+</button>
+</sc-for>
+</div>
+<sc-if value="{{hasDeliveryNote}}" hint-placeholder-val="{{ true }}"><div style="background: #F4F5F1; border-radius: 10px; padding: 10px 12px; font-size: 13px; color: #3D4148; line-height: 1.4"><span style="font-weight: 700">Observação:</span> nossas entregas são feitas apenas dentro do município - perímetro urbano.</div></sc-if>
+</div>
+
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+<label for="cupom" style="font-size: 13px; font-weight: 700; color: #5B616B">Cupom</label>
+<div style="display: flex; gap: 8px">
+<input id="cupom" autocapitalize="characters" autocorrect="off" autocomplete="off" spellcheck="false" value="{{coupon}}" onChange="{{onCoupon}}" placeholder="Ex.: BEMVINDO10" style="flex: 1; min-width: 0; height: 44px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 12px; font-size: 15px">
+<button onClick="{{applyCoupon}}" style="height: 44px; padding: 0 14px; border: 0; border-radius: 12px; background: #15171A; color: #FFFFFF; font-weight: 700">Aplicar</button>
+</div>
+<sc-if value="{{hasCouponMsg}}" hint-placeholder-val="{{ false }}"><span style="font-size: 13px; font-weight: 600; color: {{couponMsgColor}}">{{couponMsg}}</span></sc-if>
+<div style="border-top: 1px solid #ECEDE8; padding-top: 10px; display: flex; flex-direction: column; gap: 6px">
+<label style="display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; font-weight: 600; color: {{redeemColor}}"><input type="checkbox" checked="{{useRedeem}}" disabled="{{redeemBlocked}}" onChange="{{toggleRedeem}}" style="width: 20px; height: 20px; accent-color: #1E5B48"><span>{{redeemLabel}} · saldo {{cartBalance}} pts</span></label>
+<sc-if value="{{hasRedeemNote}}" hint-placeholder-val="{{ false }}"><span style="font-size: 12px; color: #5B616B">{{redeemNote}}</span></sc-if>
+</div>
+</div>
+
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 14px">
+<sc-for list="{{summaryRows}}" as="r" hint-placeholder-count="3">
+<div style="display: flex; justify-content: space-between; color: {{r.color}}"><span>{{r.label}}</span><span style="font-weight: 700">{{r.value}}</span></div>
+</sc-for>
+<div style="display: flex; justify-content: space-between; border-top: 1px solid #ECEDE8; padding-top: 10px; font-size: 17px; font-weight: 800"><span>Total</span><span>{{totalLabel}}</span></div>
+<span style="font-size: 12px; color: #1E5B48; font-weight: 600">Você ganha {{pointsToEarn}} pontos quando o pedido for concluído</span>
+</div>
+<button onClick="{{goCheckout}}" style="height: 52px; border: 0; border-radius: 14px; background: #1E5B48; color: #FFFFFF; font-size: 16px; font-weight: 800">Continuar para pagamento</button>
+<button onClick="{{keepShopping}}" style="height: 52px; border: 1px solid #1E5B48; border-radius: 14px; background: #FFFFFF; color: #1E5B48; font-size: 16px; font-weight: 800">Continuar comprando</button>
+<span style="margin-top: -6px; text-align: center; font-size: 12px; color: #5B616B">Volta para {{cartStoreName}}: os itens ficam na sacola.</span>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<!-- ============ CHECKOUT ============ -->
+<sc-if value="{{is.checkout}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding: 12px 20px 24px">
+<div style="display: flex; align-items: center; gap: 4px">
+<button onClick="{{goSacola}}" aria-label="Voltar para a sacola" style="width: 44px; height: 44px; border: 0; background: transparent; padding: 0; display: flex; align-items: center; color: #15171A"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+<h1 style="margin: 0; font-size: 22px; font-weight: 800">Pagamento</h1>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 13px; font-weight: 700; color: #5B616B">{{fulfilTitle}}</span>
+<sc-if value="{{isDelivery}}" hint-placeholder-val="{{ false }}">
+<label for="endereco" style="position: absolute; left: -9999px">Endereço de entrega</label>
+<input id="endereco" value="{{address}}" onChange="{{onAddress}}" placeholder="Endereço ou local combinado" style="height: 44px; border: 1px solid #C9CBC4; border-radius: 10px; padding: 0 12px; font-size: 15px; margin: 4px 0">
+</sc-if>
+<sc-if value="{{isPickup}}" hint-placeholder-val="{{ true }}"><span style="font-weight: 700">{{fulfilAddress}}</span></sc-if>
+<span style="font-size: 13px; color: #5B616B">{{fulfilHint}}</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 13px; font-weight: 700; color: #5B616B">Forma de pagamento</span>
+<sc-for list="{{payOpts}}" as="o" hint-placeholder-count="2">
+<button onClick="{{o.pick}}" style="min-height: 60px; border-radius: 14px; border: 2px solid {{o.bd}}; background: #FFFFFF; color: #15171A; display: flex; align-items: center; gap: 12px; padding: 10px 14px; text-align: left">
+<span style="width: 20px; height: 20px; border-radius: 999px; border: 2px solid {{o.bd}}; box-sizing: border-box; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><span style="width: 10px; height: 10px; border-radius: 999px; background: {{o.dot}}"></span></span>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 800">{{o.label}}</span><span style="font-size: 12px; color: #5B616B">{{o.sub}}</span></span>
+</button>
+</sc-for>
+</div>
+<sc-if value="{{payError}}" hint-placeholder-val="{{ false }}">
+<div style="background: #F8E3E3; border-radius: 12px; padding: 12px 14px; font-size: 14px; line-height: 1.5; color: #7A1C1F">{{payErrorText}}</div>
+</sc-if>
+<div style="background: #E3EEE9; border-radius: 12px; padding: 12px 14px; font-size: 13px; line-height: 1.5; color: #123B2E">{{payNote}}</div>
+<div style="display: flex; justify-content: space-between; font-size: 17px; font-weight: 800; padding: 4px 2px"><span>Total</span><span>{{totalLabel}}</span></div>
+<button onClick="{{pay}}" disabled="{{busy}}" style="height: 52px; border: 0; border-radius: 14px; background: #1E5B48; color: #FFFFFF; font-size: 16px; font-weight: 800">{{payCta}}</button>
+</div>
+</sc-if>
+
+<!-- ============ PIX ============ -->
+<sc-if value="{{is.pix}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding: 24px 20px; align-items: center; text-align: center">
+<h1 style="margin: 0; font-size: 22px; font-weight: 800">Pague com Pix</h1>
+<p style="margin: 0; color: #5B616B">{{pix.amount}} direto para {{pix.store}}</p>
+<sc-if value="{{pix.hasQr}}" hint-placeholder-val="{{ false }}"><img src="{{pix.qrSrc}}" alt="QR code do Pix" style="width: 220px; height: 220px; border-radius: 16px; background: #FFFFFF; border: 1px solid #DCDDD7"></sc-if>
+<sc-if value="{{pix.noQr}}" hint-placeholder-val="{{ true }}"><div style="width: 220px; height: 220px; border-radius: 16px; background: #FFFFFF; border: 1px solid #DCDDD7; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #5B616B; padding: 16px; box-sizing: border-box">Pagamento de teste: use o botão abaixo</div></sc-if>
+<button onClick="{{copyPix}}" style="height: 48px; width: 100%; border: 1px solid #1E5B48; border-radius: 14px; background: #FFFFFF; color: #1E5B48; font-weight: 800">{{pixCopyLabel}}</button>
+<div style="width: 100%; background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 14px; padding: 12px 14px; font-size: 13px; line-height: 1.6; color: #5B616B; text-align: left; box-sizing: border-box">Chave Pix: <b style="color: #15171A; word-break: break-all">{{pix.key}}</b><br>Recebedor: <b style="color: #15171A">{{pix.name}}</b></div>
+<p style="margin: 0; font-size: 13px; color: #5B616B; line-height: 1.5">O valor vai direto para a conta da loja. Depois de pagar, toque em "Já paguei": a loja confere o Pix e confirma o pedido. {{pix.deadline}}</p>
+<sc-if value="{{pix.canInform}}" hint-placeholder-val="{{ true }}"><button onClick="{{informPix}}" disabled="{{busy}}" style="height: 52px; width: 100%; border: 0; border-radius: 14px; background: #1E5B48; color: #FFFFFF; font-size: 16px; font-weight: 800">Já paguei</button></sc-if>
+<sc-if value="{{pix.informed}}" hint-placeholder-val="{{ false }}"><p style="margin: 0; width: 100%; background: #E3EEE9; color: #123B2E; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 700; box-sizing: border-box">Aviso enviado. A loja confirma assim que o Pix aparecer no extrato.</p></sc-if>
+<button onClick="{{openPendingOrder}}" style="height: 44px; width: 100%; border: 0; background: transparent; color: #1E5B48; font-weight: 700">Acompanhar o pedido</button>
+</div>
+</sc-if>
+
+<!-- ============ PEDIDO ============ -->
+<sc-if value="{{is.pedido}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding: 12px 20px 24px">
+<div style="display: flex; align-items: center; gap: 4px">
+<button onClick="{{goPedidos}}" aria-label="Voltar para pedidos" style="width: 44px; height: 44px; border: 0; background: transparent; padding: 0; display: flex; align-items: center; color: #15171A"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+<h1 style="margin: 0; font-size: 22px; font-weight: 800">Pedido #{{order.id}}</h1>
+</div>
+<div style="background: {{order.bannerBg}}; color: {{order.bannerFg}}; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 13px; font-weight: 700">{{order.storeName}}</span>
+<span style="font-size: 20px; font-weight: 800">{{order.statusLabel}}</span>
+<span style="font-size: 13px">{{order.statusHint}}</span>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 0">
+<sc-for list="{{order.steps}}" as="s" hint-placeholder-count="4">
+<div style="display: flex; gap: 12px; align-items: stretch">
+<div style="display: flex; flex-direction: column; align-items: center; width: 16px">
+<span style="width: 14px; height: 14px; border-radius: 999px; background: {{s.dot}}; border: 2px solid {{s.ring}}; box-sizing: border-box; margin-top: 3px; flex-shrink: 0"></span>
+<span style="flex: 1; width: 2px; background: {{s.line}}; min-height: 18px"></span>
+</div>
+<span style="padding-bottom: 14px; font-size: 14px; font-weight: {{s.weight}}; color: {{s.text}}">{{s.label}}</span>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{order.awaitingPayment}}" hint-placeholder-val="{{ false }}">
+<button onClick="{{payAgain}}" style="height: 48px; border: 0; border-radius: 14px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Pagar agora</button>
+</sc-if>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 14px">
+<span style="font-size: 13px; font-weight: 700; color: #5B616B">Comprovante</span>
+<sc-for list="{{order.lines}}" as="l" hint-placeholder-count="2">
+<div style="display: flex; justify-content: space-between; gap: 12px"><span>{{l.qty}}× {{l.name}} ({{l.variant}})</span><span style="font-weight: 700">{{l.totalLabel}}</span></div>
+</sc-for>
+<sc-for list="{{order.summary}}" as="r" hint-placeholder-count="2">
+<div style="display: flex; justify-content: space-between; color: {{r.color}}"><span>{{r.label}}</span><span style="font-weight: 700">{{r.value}}</span></div>
+</sc-for>
+<div style="display: flex; justify-content: space-between; border-top: 1px solid #ECEDE8; padding-top: 8px; font-weight: 800"><span>{{order.totalTitle}} · {{order.payLabel}}</span><span>{{order.totalLabel}}</span></div>
+<span style="font-size: 12px; color: #1E5B48; font-weight: 600">{{order.pointsNote}}</span>
+</div>
+<div style="display: flex; gap: 10px">
+<button onClick="{{chatOrderStore}}" style="flex: 1; height: 48px; border: 1px solid #1E5B48; border-radius: 14px; background: #FFFFFF; color: #1E5B48; font-weight: 700">Falar com a loja</button>
+<sc-if value="{{order.canCancel}}" hint-placeholder-val="{{ false }}">
+<button onClick="{{cancelOrder}}" style="flex: 1; height: 48px; border: 1px solid #A3262A; border-radius: 14px; background: #FFFFFF; color: #A3262A; font-weight: 700">Cancelar pedido</button>
+</sc-if>
+</div>
+</div>
+</sc-if>
+
+<!-- ============ PEDIDOS ============ -->
+<sc-if value="{{is.pedidos}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 20px 20px 24px">
+<h1 style="margin: 0 0 4px; font-size: 24px; font-weight: 800">Pedidos</h1>
+<sc-if value="{{noOrders}}" hint-placeholder-val="{{ false }}">
+<p style="margin: 0; color: #5B616B">Você ainda não fez pedidos. Eles aparecem aqui com o andamento em tempo real.</p>
+</sc-if>
+<sc-for list="{{orderCards}}" as="o" hint-placeholder-count="2">
+<button onClick="{{o.open}}" style="display: flex; flex-direction: column; gap: 6px; text-align: left; border: 1px solid #DCDDD7; background: #FFFFFF; border-radius: 16px; padding: 14px; color: #15171A">
+<div style="display: flex; justify-content: space-between; width: 100%"><span style="font-weight: 800">#{{o.id}} · {{o.storeName}}</span><span style="font-weight: 800">{{o.totalLabel}}</span></div>
+<span style="align-self: flex-start; font-size: 12px; font-weight: 700; color: {{o.bannerFg}}; background: {{o.bannerBg}}; border-radius: 999px; padding: 4px 10px">{{o.statusLabel}}</span>
+<span style="font-size: 13px; color: #5B616B">{{o.itemsLabel}}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<!-- ============ MENSAGENS ============ -->
+<sc-if value="{{is.mensagens}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 20px 20px 24px">
+<h1 style="margin: 0 0 4px; font-size: 24px; font-weight: 800">Mensagens</h1>
+<sc-for list="{{threadCards}}" as="t" hint-placeholder-count="3">
+<button onClick="{{t.open}}" style="display: flex; gap: 12px; align-items: center; text-align: left; border: 1px solid {{t.bd}}; background: #FFFFFF; border-radius: 16px; padding: 12px; color: #15171A">
+<div style="width: 44px; height: 44px; border-radius: 12px; background: {{t.color}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; flex-shrink: 0; position: relative">{{t.initials}}<sc-if value="{{t.unread}}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="position: absolute; top: -4px; right: -4px; width: 14px; height: 14px; border-radius: 999px; background: #A04A12; border: 2px solid #FFFFFF"></span></sc-if></div>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+<span style="font-weight: 800">{{t.name}}</span>
+<span style="font-size: 13px; color: {{t.previewColor}}; font-weight: {{t.previewWeight}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.preview}}</span>
+</div>
+<sc-if value="{{t.unread}}" hint-placeholder-val="{{ false }}"><span style="font-size: 12px; font-weight: 800; color: #FFFFFF; background: #A04A12; border-radius: 999px; padding: 4px 9px; flex-shrink: 0">{{t.unreadLabel}}</span></sc-if>
+<sc-if value="{{t.muted}}" hint-placeholder-val="{{ false }}"><span style="font-size: 11px; font-weight: 700; color: #5B616B">Silenciada</span></sc-if>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<!-- ============ CHAT ============ -->
+<sc-if value="{{is.chat}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; display: flex; flex-direction: column; min-height: 0">
+<div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #FFFFFF; border-bottom: 1px solid #DCDDD7">
+<button onClick="{{goMensagens}}" aria-label="Voltar para mensagens" style="width: 44px; height: 44px; border: 0; background: transparent; padding: 0; display: flex; align-items: center; color: #15171A"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+<div style="flex: 1; display: flex; flex-direction: column"><span style="font-weight: 800">{{chatStore.name}}</span><span style="font-size: 12px; color: #5B616B">{{chatStore.hours}}</span></div>
+<button onClick="{{toggleMute}}" style="height: 36px; padding: 0 10px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #15171A; font-size: 12px; font-weight: 700">{{muteLabel}}</button>
+<button onClick="{{reportChat}}" style="height: 36px; padding: 0 10px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #A3262A; font-size: 12px; font-weight: 700">Denunciar</button>
+</div>
+<div style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px">
+<sc-for list="{{messages}}" as="m" hint-placeholder-count="3">
+<div style="display: flex; justify-content: {{m.justify}}">
+<sc-if value="{{m.isText}}" hint-placeholder-val="{{ true }}">
+<div style="max-width: 78%; padding: 10px 14px; border-radius: 16px; background: {{m.bg}}; color: {{m.fg}}; font-size: 14px; line-height: 1.45; white-space: pre-line">{{m.text}}</div>
+</sc-if>
+<sc-if value="{{m.isBroadcast}}" hint-placeholder-val="{{ false }}">
+<div style="max-width: 84%; padding: 12px 14px; border-radius: 16px; background: #FFF4E5; border: 1px solid #F2D6A8; color: #15171A; display: flex; flex-direction: column; gap: 6px">
+<span style="align-self: flex-start; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; border-radius: 999px; padding: 3px 8px; background: #8A4B00; color: #FFFFFF">{{m.badge}}</span>
+<span style="font-weight: 800; font-size: 15px">{{m.bTitle}}</span>
+<span style="font-size: 14px; line-height: 1.45; white-space: pre-line">{{m.bBody}}</span>
+</div>
+</sc-if>
+<sc-if value="{{m.isImage}}" hint-placeholder-val="{{ false }}">
+<div style="max-width: 72%; display: flex; flex-direction: column; align-items: {{m.justify}}; gap: 2px">
+<sc-if value="{{m.hasSrc}}" hint-placeholder-val="{{ false }}"><img src="{{m.src}}" alt="Imagem enviada na conversa" style="max-width: 100%; max-height: 320px; border-radius: 16px; border: 1px solid #DCDDD7; background: #FFFFFF; display: block"></sc-if>
+<sc-if value="{{m.noSrc}}" hint-placeholder-val="{{ true }}"><div style="width: 180px; height: 140px; border-radius: 16px; background: #ECEDE8; color: #5B616B; font-size: 13px; display: flex; align-items: center; justify-content: center">Carregando imagem…</div></sc-if>
+<sc-if value="{{m.canDelete}}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{m.notConfirming}}" hint-placeholder-val="{{ true }}"><button onClick="{{m.askDelete}}" aria-label="Apagar imagem" style="height: 32px; padding: 0 10px; border: 0; background: transparent; color: #A3262A; font-size: 13px; font-weight: 700">Apagar imagem</button></sc-if>
+<sc-if value="{{m.confirming}}" hint-placeholder-val="{{ false }}"><div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; font-size: 13px; color: #5B616B; max-width: 260px">Apagar para você e para a loja?<button onClick="{{m.cancelDelete}}" style="height: 32px; padding: 0 10px; border: 1px solid #C9CBC4; border-radius: 10px; background: #FFFFFF; color: #15171A; font-weight: 700">Cancelar</button><button onClick="{{m.doDelete}}" style="height: 32px; padding: 0 10px; border: 0; border-radius: 10px; background: #A3262A; color: #FFFFFF; font-weight: 800">Apagar</button></div></sc-if>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{m.isProduct}}" hint-placeholder-val="{{ false }}">
+<button onClick="{{m.open}}" style="width: 220px; text-align: left; border: 1px solid #DCDDD7; border-radius: 16px; background: #FFFFFF; padding: 8px; display: flex; gap: 10px; align-items: center; color: #15171A">
+<div style="width: 48px; height: 48px; border-radius: 10px; background: {{m.tint}}; flex-shrink: 0"></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 11px; font-weight: 700; color: #1E5B48">Produto compartilhado</span><span style="font-weight: 700; font-size: 13px">{{m.name}}</span><span style="font-size: 13px; font-weight: 800">{{m.priceLabel}}</span></div>
+</button>
+</sc-if>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; gap: 8px; padding: 10px 12px; background: #FFFFFF; border-top: 1px solid #DCDDD7">
+<label aria-label="Tirar foto com a câmera" style="width: 44px; height: 44px; border: 1px solid #C9CBC4; border-radius: 12px; background: #FFFFFF; color: #15171A; display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative; cursor: pointer; box-sizing: border-box"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg><input id="foto-camera" type="file" accept="image/*" capture="environment" onChange="{{onChatPhoto}}" style="position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden"></label>
+<label aria-label="Enviar imagem da galeria" style="width: 44px; height: 44px; border: 1px solid #C9CBC4; border-radius: 12px; background: #FFFFFF; color: #15171A; display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative; cursor: pointer; box-sizing: border-box"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 16l5-5 4 4 3-3 6 6"></path></svg><input id="foto-galeria" type="file" accept="image/*" onChange="{{onChatPhoto}}" style="position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden"></label>
+<label for="msg" style="position: absolute; left: -9999px">Mensagem</label>
+<input id="msg" value="{{draft}}" onChange="{{onDraft}}" placeholder="Escreva para a loja" style="flex: 1; min-width: 0; height: 44px; border: 1px solid #C9CBC4; border-radius: 12px; padding: 0 12px; font-size: 15px">
+<button onClick="{{sendMsg}}" style="height: 44px; padding: 0 14px; border: 0; border-radius: 12px; background: #1E5B48; color: #FFFFFF; font-weight: 800">Enviar</button>
+</div>
+</div>
+</sc-if>
+
+<!-- ============ FIDELIDADE ============ -->
+<sc-if value="{{is.fidelidade}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 20px 20px 24px">
+<h1 style="margin: 0; font-size: 24px; font-weight: 800">Cartão fidelidade</h1>
+<p style="margin: 0; font-size: 14px; color: #5B616B; line-height: 1.5">Cada loja tem seu programa: 1 ponto a cada R$ 1 em pedidos concluídos; 100 pontos valem R$ 10 de desconto. Pontos vencem em 12 meses.</p>
+<sc-for list="{{loyaltyCards}}" as="c" hint-placeholder-count="3">
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 10px">
+<div style="width: 36px; height: 36px; border-radius: 10px; background: {{c.color}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px">{{c.initials}}</div>
+<span style="flex: 1; font-weight: 800">{{c.name}}</span>
+<span style="font-size: 20px; font-weight: 800">{{c.balance}} <span style="font-size: 12px; color: #5B616B">pts</span></span>
+</div>
+<div style="height: 8px; border-radius: 999px; background: #ECEDE8; overflow: hidden"><div style="height: 8px; width: {{c.pct}}; background: {{c.color}}"></div></div>
+<span style="font-size: 12px; color: #5B616B">{{c.hint}}</span>
+</div>
+</sc-for>
+<h2 style="margin: 8px 0 0; font-size: 17px; font-weight: 800">Extrato</h2>
+<div style="background: #FFFFFF; border: 1px solid #DCDDD7; border-radius: 16px; display: flex; flex-direction: column">
+<sc-for list="{{ledgerRows}}" as="r" hint-placeholder-count="3">
+<div style="display: flex; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #ECEDE8; align-items: center">
+<div style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 700">{{r.desc}}</span><span style="font-size: 12px; color: #5B616B">{{r.date}} · {{r.storeName}}</span></div>
+<span style="font-weight: 800; color: {{r.color}}">{{r.ptsLabel}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<!-- ============ CONFIRMAR SAÍDA ============ -->
+<sc-if value="{{confirmingSignOut}}" hint-placeholder-val="{{ false }}">
+<div style="position: absolute; inset: 0; background: rgba(21,23,26,0.55); display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 10">
+<div role="dialog" aria-modal="true" aria-labelledby="sair-titulo" style="width: 100%; max-width: 360px; background: #FFFFFF; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box">
+<h2 id="sair-titulo" style="margin: 0; font-size: 20px; font-weight: 800">Sair do app?</h2>
+<p style="margin: 0; font-size: 15px; line-height: 1.5; color: #3A3F45">Para voltar a acessar o app, será enviado um novo código de acesso para o seu e-mail <b>{{meEmail}}</b>.</p>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #5B616B">Seu cadastro, pedidos e pontos continuam guardados.</p>
+<div style="display: flex; gap: 10px; padding-top: 4px">
+<button onClick="{{cancelSignOut}}" style="flex: 1; height: 48px; border: 1px solid #C9CBC4; border-radius: 12px; background: #FFFFFF; color: #15171A; font-weight: 700">Cancelar</button>
+<button onClick="{{signOut}}" style="flex: 1; height: 48px; border: 0; border-radius: 12px; background: #A3262A; color: #FFFFFF; font-weight: 800">Sair</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<!-- ============ TOAST ============ -->
+<sc-if value="{{hasToast}}" hint-placeholder-val="{{ false }}">
+<div role="status" style="position: absolute; left: 16px; right: 16px; bottom: {{toastBottom}}; background: #15171A; color: #FFFFFF; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600">{{toast}}</div>
+</sc-if>
+
+<!-- ============ NAVEGAÇÃO ============ -->
+<sc-if value="{{showNav}}" hint-placeholder-val="{{ false }}">
+<nav aria-label="Navegação principal" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); background: #FFFFFF; border-top: 1px solid #DCDDD7; padding: 6px 4px calc(10px + env(safe-area-inset-bottom)); flex-shrink: 0">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="5">
+<button onClick="{{t.go}}" style="height: 54px; border: 0; background: transparent; color: {{t.color}}; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 11px; font-weight: 700; position: relative">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{t.d1}}"></path><path d="{{t.d2}}"></path></svg>
+<span>{{t.label}}</span>
+<sc-if value="{{t.hasBadge}}" hint-placeholder-val="{{ false }}"><span style="position: absolute; top: 4px; left: 50%; margin-left: 6px; min-width: 18px; height: 18px; border-radius: 999px; background: #A04A12; color: #FFFFFF; font-size: 11px; display: flex; align-items: center; justify-content: center">{{t.badge}}</span></sc-if>
+</button>
+</sc-for>
+</nav>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+// Lógica do app do comprador, ligada ao Supabase (www/config.js diz qual servidor).
+// O servidor calcula preços, estoque e pontos; aqui só se mostra o que ele devolve.
+var CFG = window.CLUBE_CONFIG || {};
+var sb = window.supabase.createClient(CFG.url, CFG.chave, { auth: { persistSession: true, autoRefreshToken: true } });
+var GREEN = '#1E5B48', INK = '#15171A', MUTED = '#5B616B', LINE = '#C9CBC4', RED = '#A3262A', PROMO = '#A04A12';
+var CONVITE_KEY = 'clube.convite';
+// prazo para pagar: "24 horas", "3 dias"; quando vence o pedido (criação + horas), em "dd/mm às hh:mm"
+function prazoTexto(h) { return h > 48 && h % 24 === 0 ? (h / 24) + ' dias' : h + ' horas'; }
+function venceEm(o) {
+  var x = new Date(new Date(o.created_at).getTime() + o.pay_deadline_hours * 3600000), d = function (n) { return String(n).padStart(2, '0'); };
+  return d(x.getDate()) + '/' + d(x.getMonth() + 1) + ' às ' + d(x.getHours()) + ':' + d(x.getMinutes());
+}
+function brl(c) { return (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
+function hoje(d) { var x = new Date(d); return String(x.getDate()).padStart(2, '0') + '/' + String(x.getMonth() + 1).padStart(2, '0'); }
+function msgErro(e) { return (e && (e.message || e.error_description || e.error)) || 'Algo deu errado. Tente de novo.'; }
+// reduz a foto para no máximo 1600 px em JPEG antes de enviar (foto da câmera do celular passa de 5 MB)
+function reduzirFoto(file) {
+  return new Promise(function (ok, falha) {
+    var img = new Image(), url = URL.createObjectURL(file);
+    img.onload = function () {
+      var k = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(function (b) { b ? ok(b) : falha(new Error('Não foi possível ler a foto.')); }, 'image/jpeg', 0.85);
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); falha(new Error('Arquivo não é uma imagem.')); };
+    img.src = url;
+  });
+}
+function guardar(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} }
+function lerGuardado(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+var STATUS_LABEL = {
+  aguardando_pagamento: 'Aguardando pagamento', pago: 'Pago', confirmado: 'Confirmado', em_preparacao: 'Em preparação',
+  pronto: 'Pronto para retirada', enviado: 'Enviado', concluido: 'Concluído', cancelado: 'Cancelado', reembolsado: 'Cancelado · reembolsado'
+};
+var BROADCAST_LABEL = { promocao: 'Promoção', bonus: 'Bônus', aviso: 'Aviso' };
+var STEPS = { retirada: ['pago', 'em_preparacao', 'pronto', 'concluido'], entrega: ['pago', 'em_preparacao', 'enviado', 'concluido'] };
+
+class Component extends DCLogic {
+  initial() {
+    return {
+      screen: 'carregando', loadingText: 'Abrindo o clube…', loadError: false, busy: false,
+      inviteCode: lerGuardado(CONVITE_KEY) || '', invite: null, inviteInvalid: false, noInvite: false,
+      name: '', contact: '', codeSent: false, otp: '', accepted: false,
+      me: null, group: null, stores: [], products: [], orders: [], ledger: [], convs: {},
+      query: '', storeId: null, productId: null, cat: 'Todos', variant: null, qty: 1,
+      cart: { store: null, items: [] }, coupon: '', couponApplied: '', useRedeem: false, fulfil: 'retirada', address: '',
+      quote: null, quoteError: '',
+      payMethod: 'pix', payError: '', pendingOrder: null, pix: null, pixCopied: false,
+      confirmDeleteImg: null, orderId: null, chatStore: null, draft: '', toast: '', photoIdx: 0, loginMsg: '', confirmingSignOut: false, imgUrls: {},
+      visitor: false, req: { store: '', name: '', email: '', phone: '', sentTo: '', back: 'convite' }
+    };
+  }
+  s() { return Object.assign(this.initial(), this.state || {}); }
+  flash(msg) {
+    var self = this;
+    this.setState({ toast: msg });
+    clearTimeout(this._t);
+    this._t = setTimeout(function () { self.setState({ toast: '' }); }, 2800);
+  }
+  componentDidMount() {
+    var self = this;
+    this.setState(this.initial());
+    this.boot();
+    this._auth = sb.auth.onAuthStateChange(function (ev) { if (ev === 'SIGNED_OUT') self.setState(Object.assign(self.initial(), { screen: 'convite', inviteCode: '' })); });
+  }
+  componentWillUnmount() {
+    clearTimeout(this._t); clearTimeout(this._q); clearInterval(this._poll); clearTimeout(this._reassinar);
+    if (this._aoVoltar) {
+      document.removeEventListener('visibilitychange', this._aoVoltar);
+      window.removeEventListener('focus', this._aoVoltar);
+      window.removeEventListener('online', this._aoVoltar);
+    }
+    var canal = this._canal; this._canal = null;
+    if (canal) sb.removeChannel(canal);
+    if (this._auth) this._auth.data.subscription.unsubscribe();
+  }
+
+  // ------------------------------------------------------------ carga de dados
+  // Vitrine aberta: quem ainda não tem convite vê as lojas e os produtos, sem comprar nem conversar.
+  async loadVitrine(irPara) {
+    var r = await sb.rpc('public_showcase');
+    if (r.error) throw r.error;
+    this.setState({ visitor: true, group: null, stores: r.data.stores || [], orders: [], ledger: [], convs: {},
+      products: (r.data.products || []).map(function (p) { p.product_variants.sort(function (a, b) { return a.position - b.position; }); return p; }),
+      cart: { store: null, items: [] }, screen: irPara || 'grupo', query: '' });
+  }
+
+  // Abriu a conversa: tudo o que a loja mandou até aqui conta como lido (no servidor, vale em qualquer celular).
+  async marcarLida(storeId) {
+    var c = this.s().convs[storeId];
+    if (!c || !c.messages.some(function (m) { return m.from_store && m.id > (c.readId || 0); })) return;
+    var r = await sb.rpc('mark_conversation_read', { p_conversation: c.id });
+    if (r.error) return;
+    var convs = Object.assign({}, this.s().convs);
+    if (convs[storeId]) convs[storeId] = Object.assign({}, convs[storeId], { readId: Math.max(convs[storeId].readId || 0, r.data || 0) });
+    this.setState({ convs: convs });
+  }
+
+  // Abre o pré-cadastro do pedido de convite, já com a loja escolhida (ou a administração, se vazio).
+  async pedirConvite(storeId) {
+    var cur = this.s();
+    if (!cur.stores.length) await this.loadVitrine(cur.screen);
+    this.setState({ screen: 'solicitar', req: Object.assign({}, this.s().req, { store: storeId || '', sentTo: '', back: cur.screen }) });
+  }
+
+  async boot() {
+    this.setState({ screen: 'carregando', loadingText: 'Abrindo o clube…', loadError: false });
+    try {
+      var sess = (await sb.auth.getSession()).data.session;
+      if (!sess) {
+        this.setState({ screen: 'convite' });
+        if (this.s().inviteCode) this.lookupInvite(this.s().inviteCode);
+        return;
+      }
+      await this.loadAll();
+    } catch (e) {
+      this.setState({ loadingText: 'Sem conexão com o clube. ' + msgErro(e), loadError: true });
+    }
+  }
+
+  async loadAll() {
+    var uid = (await sb.auth.getUser()).data.user;
+    if (!uid) { this.setState({ screen: 'convite' }); return; }
+    var r = await Promise.all([
+      sb.from('profiles').select('id,name,contact').eq('id', uid.id).maybeSingle(),
+      sb.from('group_members').select('status, groups(name, rules)').eq('user_id', uid.id),
+      sb.from('stores').select('*, loyalty_programs(*)').order('name'),
+      sb.from('products').select('*, highlighted_today, product_variants(id,label,stock,position)').order('created_at').order('name'),
+      sb.from('orders').select('*, order_items(name,variant_label,qty,unit_cents)').order('id', { ascending: false }),
+      sb.from('loyalty_ledger').select('*').order('id', { ascending: false }),
+      sb.from('conversations').select('id, store_id, buyer_muted, buyer_read_id, messages(id,body,product_id,image_path,from_store,broadcast_kind,created_at)').order('created_at')
+    ]);
+    for (var i = 0; i < r.length; i++) if (r[i].error) throw r[i].error;
+    var membership = (r[1].data || [])[0];
+    if (!membership) {
+      // pedido de convite aprovado: entra no grupo agora, sem precisar de código
+      var claim = await sb.rpc('claim_invite_request');
+      if (!claim.error && claim.data) { await this.loadAll(); if (claim.data === 'ativo') this.flash('Convite aprovado. Bem-vindo ao clube!'); return; }
+      this.setState({ screen: 'convite', me: { id: uid.id, email: uid.email } }); return;
+    }
+    if (membership.status === 'pendente') { this.setState({ screen: 'pendente' }); return; }
+    if (membership.status === 'bloqueado') { this.setState({ screen: 'carregando', loadingText: 'Seu acesso ao clube foi bloqueado pela administração.', loadError: false }); return; }
+    var convs = {};
+    (r[6].data || []).forEach(function (c) {
+      c.messages.sort(function (a, b) { return a.id - b.id; });
+      convs[c.store_id] = { id: c.id, muted: c.buyer_muted, readId: c.buyer_read_id || 0, messages: c.messages };
+    });
+    var cur = this.s().screen;
+    this.setState({
+      me: { id: uid.id, email: uid.email, name: (r[0].data && r[0].data.name) || '' },
+      group: membership.groups, stores: r[2].data || [],
+      products: (r[3].data || []).map(function (p) { p.product_variants.sort(function (a, b) { return a.position - b.position; }); return p; }),
+      orders: r[4].data || [], ledger: r[5].data || [], convs: convs, visitor: false,
+      screen: ['carregando', 'convite', 'cadastro', 'entrar', 'pendente'].indexOf(cur) >= 0 ? 'grupo' : cur
+    });
+    this.listen(uid.id);
+  }
+
+  // Várias recargas podem estar no ar ao mesmo tempo (uma por evento do tempo real). Só a mais recente vale:
+  // uma resposta atrasada de antes não pode sobrescrever o status novo do pedido.
+  async reloadOrders() {
+    var seq = this._seqPedidos = (this._seqPedidos || 0) + 1;
+    var r = await Promise.all([
+      sb.from('orders').select('*, order_items(name,variant_label,qty,unit_cents)').order('id', { ascending: false }),
+      sb.from('loyalty_ledger').select('*').order('id', { ascending: false }),
+      sb.from('products').select('*, highlighted_today, product_variants(id,label,stock,position)').order('created_at').order('name')
+    ]);
+    if (r[0].error || seq !== this._seqPedidos) return;
+    this.setState({
+      orders: r[0].data, ledger: r[1].data || this.s().ledger,
+      products: (r[2].data || this.s().products).map(function (p) { p.product_variants.sort(function (a, b) { return a.position - b.position; }); return p; })
+    });
+  }
+
+  // Tempo real: pedido mudou de status (pagamento confirmado, loja avançou) ou chegou mensagem.
+  listen(uid) {
+    var self = this, antigo = this._canal;
+    this._canal = null;  // o canal antigo avisa "fechado" ao sair; esse aviso não pode reassinar
+    if (antigo) sb.removeChannel(antigo);
+    var canal = this._canal = sb.channel('comprador-' + uid)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: 'buyer_id=eq.' + uid }, function (ev) {
+        var antes = self.s().orders.find(function (o) { return o.id === ev.new.id; });
+        self.reloadOrders();
+        if (antes && antes.status !== ev.new.status) {
+          if (ev.new.status === 'pago' && self.s().screen === 'pix') self.setState({ screen: 'pedido', orderId: ev.new.id, pix: null });
+          self.flash('Pedido #' + ev.new.id + ': ' + STATUS_LABEL[ev.new.status] + '.');
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, function (ev) {
+        var m = ev.new, convs = Object.assign({}, self.s().convs);
+        Object.keys(convs).forEach(function (sid) {
+          var c = convs[sid];
+          if (c.id === m.conversation_id) convs[sid] = Object.assign({}, c, { messages: c.messages.map(function (x) { return x.id === m.id ? Object.assign({}, x, m) : x; }) });
+        });
+        self.setState({ convs: convs });
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, function (ev) {
+        var m = ev.new, convs = Object.assign({}, self.s().convs), achou = false;
+        Object.keys(convs).forEach(function (sid) {
+          var c = convs[sid];
+          if (c.id !== m.conversation_id) return;
+          achou = true;
+          if (c.messages.some(function (x) { return x.id === m.id; })) return;
+          convs[sid] = Object.assign({}, c, { messages: c.messages.concat([m]) });
+          var aberta = self.s().screen === 'chat' && self.s().chatStore === sid;
+          if (aberta && m.from_store) setTimeout(function () { self.marcarLida(sid); }, 0);  // está lendo agora
+          else if (m.from_store && !c.muted) self.flash('Nova mensagem de ' + self.storeById(sid).name + '.');
+        });
+        self.setState({ convs: convs });
+        // conversa que a loja começou (ex.: promoção para todos os clientes): recarrega para trazê-la
+        if (!achou && m.from_store) self.loadAll();
+      })
+      .subscribe(function (status) {
+        if (self._canal !== canal) return;
+        // ao conectar ou reconectar, recarrega pedidos para pegar mudanças perdidas enquanto estava fora do ar
+        if (status === 'SUBSCRIBED') self.reloadOrders();
+        // canal caiu (rede, celular suspendeu o app): tenta assinar de novo em instantes
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          clearTimeout(self._reassinar);
+          self._reassinar = setTimeout(function () { if (self.s().me) self.listen(uid); }, 3000);
+        }
+      });
+    clearInterval(this._poll);
+    this._poll = setInterval(function () { if (!document.hidden) self.reloadOrders(); }, 30000);
+    // ao voltar para o app (tela acesa, app em primeiro plano, rede de volta), atualiza na hora e, se o
+    // tempo real tiver caído enquanto o celular suspendia o app, assina de novo
+    if (!this._aoVoltar) {
+      this._aoVoltar = function () {
+        if (document.hidden || !self.s().me) return;
+        self.reloadOrders();
+        if (!self._canal || self._canal.state !== 'joined') self.listen(uid);
+      };
+      document.addEventListener('visibilitychange', this._aoVoltar);
+      window.addEventListener('focus', this._aoVoltar);
+      window.addEventListener('online', this._aoVoltar);
+    }
+  }
+
+  // as imagens da conversa ficam num bucket privado: pede endereços assinados (válidos por 1 hora)
+  // apaga a imagem que o próprio cliente enviou: some da conversa dos dois lados e sai do armazenamento
+  async apagarImagem(m) {
+    try {
+      var r = await sb.rpc('delete_message_image', { p_message: m.id });
+      if (r.error) throw r.error;
+      await sb.storage.from('conversas').remove([r.data]);
+      var convs = Object.assign({}, this.s().convs);
+      Object.keys(convs).forEach(function (sid) {
+        var c = convs[sid];
+        if (c.messages.some(function (x) { return x.id === m.id; })) convs[sid] = Object.assign({}, c, { messages: c.messages.map(function (x) { return x.id === m.id ? Object.assign({}, x, { image_path: null, body: 'Imagem apagada' }) : x; }) });
+      });
+      this.setState({ convs: convs, confirmDeleteImg: null });
+      this.flash('Imagem apagada.');
+    } catch (e) { this.setState({ confirmDeleteImg: null }); this.flash(msgErro(e)); }
+  }
+
+  async assinarImagens(paths) {
+    var self = this;
+    this._assinando = this._assinando || {};
+    var novos = paths.filter(function (p) { return !self._assinando[p]; });
+    if (!novos.length) return;
+    novos.forEach(function (p) { self._assinando[p] = true; });
+    var r = await sb.storage.from('conversas').createSignedUrls(novos, 3600);
+    novos.forEach(function (p) { delete self._assinando[p]; });
+    if (r.error) return;
+    var urls = Object.assign({}, this.s().imgUrls);
+    (r.data || []).forEach(function (x) { if (x.signedUrl) urls[x.path] = x.signedUrl; });
+    this.setState({ imgUrls: urls });
+  }
+
+  openProduct(p) {
+    var first = p.product_variants.find(function (v) { return v.stock > 0; });
+    this.setState({ screen: 'produto', productId: p.id, storeId: p.store_id, variant: first ? first.id : null, qty: 1, photoIdx: 0 });
+  }
+
+  storeById(id) { return this.s().stores.find(function (x) { return x.id === id; }) || { name: '', loyalty_programs: null }; }
+  productById(id) { return this.s().products.find(function (x) { return x.id === id; }); }
+  variantById(id) {
+    var out = null;
+    this.s().products.forEach(function (p) { p.product_variants.forEach(function (v) { if (v.id === id) out = { v: v, p: p }; }); });
+    return out;
+  }
+
+  // ------------------------------------------------------------ convite e login
+  async lookupInvite(code) {
+    var r = await sb.rpc('invite_info', { p_code: code.trim() });
+    if (r.error || !r.data || !r.data.valid) { this.setState({ invite: null, inviteInvalid: !!code.trim() }); return null; }
+    this.setState({ invite: r.data, inviteInvalid: false });
+    return r.data;
+  }
+
+  async accept(code, name) {
+    var r = await sb.rpc('accept_invite', { p_code: code.trim(), p_name: name || null });
+    if (r.error) throw r.error;
+    guardar(CONVITE_KEY, null);
+    if (r.data.status === 'pendente') { this.setState({ screen: 'pendente' }); return; }
+    await this.loadAll();
+    this.setState({ screen: 'grupo' });
+    this.flash('Você agora é membro do ' + (this.s().group ? this.s().group.name : 'clube') + '.');
+  }
+
+  // ------------------------------------------------------------ sacola: cotação no servidor
+  requote(delay) {
+    var self = this;
+    clearTimeout(this._q);
+    this._q = setTimeout(async function () {
+      var s = self.s();
+      if (!s.cart.items.length) { self.setState({ quote: null, quoteError: '' }); return; }
+      var r = await sb.rpc('quote_order', {
+        p_store: s.cart.store, p_items: s.cart.items.map(function (it) { return { variant_id: it.variant_id, qty: it.qty }; }),
+        p_coupon: s.couponApplied || null, p_use_points: s.useRedeem, p_fulfil: s.fulfil
+      });
+      if (r.error) self.setState({ quote: null, quoteError: msgErro(r.error) });
+      else self.setState({ quote: r.data, quoteError: '' });
+    }, delay || 0);
+  }
+
+  // Pedido aguardando pagamento que ficou para trás quando a sacola mudou: cancela e devolve o estoque.
+  dropPending() {
+    var id = this.s().pendingOrder;
+    if (id) { this.setState({ pendingOrder: null }); sb.rpc('cancel_order', { p_order: id, p_reason: 'Sacola alterada antes do pagamento' }); }
+  }
+
+  // Formas de pagamento que a loja oferece agora: Pix direto só com a liberação da administração e a chave cadastrada.
+  payMethodsOf(store) {
+    var online = !!(store.online_payment && store.pix_key), m = [];
+    if (online && store.accept_pix) m.push('pix');
+    if (store.accept_offline) m.push('na_loja');
+    return m;
+  }
+  payMethodFor(store) {
+    var m = this.payMethodsOf(store), cur = this.s().payMethod;
+    return m.indexOf(cur) >= 0 ? cur : m[0] || 'na_loja';
+  }
+
+  // Pix direto: o código "copia e cola" e o QR code saem da chave da loja, com o valor do pedido.
+  startPayment(orderId) {
+    var s = this.s(), o = s.orders.find(function (x) { return x.id === orderId; }) || {};
+    var store = this.storeById(o.store_id || s.cart.store);
+    if (!store.pix_key) throw new Error(store.name + ' ainda não cadastrou a chave Pix.');
+    var code = window.pixCopiaECola({ chave: store.pix_key, nome: store.pix_name, cidade: store.pix_city, centavos: o.total_cents, txid: 'CC' + orderId });
+    var qr = window.qrcode(0, 'M'); qr.addData(code); qr.make();
+    this.setState({ screen: 'pix', pixCopied: false, pix: {
+      orderId: orderId, code: code, qrSrc: qr.createDataURL(6, 12), key: store.pix_key, name: store.pix_name,
+      amount: brl(o.total_cents || (s.quote ? s.quote.total_cents : 0)), store: store.name } });
+  }
+
+  orderView(o) {
+    var store = this.storeById(o.store_id);
+    var naLoja = o.pay_method === 'na_loja', onde = o.fulfil === 'entrega' ? 'na entrega' : 'na retirada';
+    var steps = STEPS[o.fulfil].map(function (st) { return naLoja && st === 'pago' ? 'confirmado' : st; });
+    var idx = steps.indexOf(o.status);
+    var cancelled = o.status === 'cancelado' || o.status === 'reembolsado';
+    var waiting = o.status === 'aguardando_pagamento';
+    var done = o.status === 'concluido';
+    var hint = cancelled ? (o.cancel_reason || (o.status === 'reembolsado' ? (o.pay_method === 'pix' ? store.name + ' devolve o valor pelo Pix.' : 'O estorno volta pelo mesmo meio de pagamento.') : 'Nenhum valor foi cobrado.'))
+      : waiting ? (o.pix_informed_at ? 'Você avisou que pagou. ' + store.name + ' confere o Pix e confirma o pedido.' : 'Pague o Pix para a loja confirmar. ' + (o.pay_deadline_hours ? 'Sem confirmação até ' + venceEm(o) + ', o pedido é cancelado.' : ''))
+      : done ? 'Pedido concluído. Pontos creditados.' : o.status === 'pago' ? (o.pay_method === 'pix' ? 'Pix confirmado pela loja.' : 'Pagamento confirmado.')
+      : naLoja ? 'Pague direto para ' + store.name + ' ' + onde + (o.pay_deadline_hours && o.status !== 'enviado' ? ' até ' + venceEm(o) + ', senão o pedido é cancelado' : '') + '. A loja atualiza o andamento por aqui.' : 'A loja atualiza o andamento por aqui.';
+    var rows = [{ label: 'Subtotal', value: brl(o.subtotal_cents), color: INK }];
+    if (o.coupon_discount_cents) rows.push({ label: 'Cupom', value: '− ' + brl(o.coupon_discount_cents), color: PROMO });
+    if (o.redeem_discount_cents) rows.push({ label: 'Resgate de ' + o.points_redeemed + ' pontos', value: '− ' + brl(o.redeem_discount_cents), color: PROMO });
+    rows.push({ label: o.fulfil === 'entrega' ? 'Entrega' : 'Retirada', value: o.shipping_cents ? brl(o.shipping_cents) : o.fulfil === 'entrega' ? 'A combinar' : 'Grátis', color: INK });
+    var credited = this.s().ledger.some(function (l) { return l.order_id === o.id && l.kind === 'credito'; });
+    return {
+      id: o.id, storeName: store.name, statusLabel: STATUS_LABEL[o.status], statusHint: hint,
+      bannerBg: cancelled ? '#F8E3E3' : done ? INK : waiting ? '#FBEADF' : '#E3EEE9',
+      bannerFg: cancelled ? '#7A1C1F' : done ? '#FFFFFF' : waiting ? '#6B3008' : '#123B2E',
+      totalLabel: brl(o.total_cents), totalTitle: waiting || o.status === 'cancelado' ? 'Total' : naLoja && !done ? 'Total a pagar ' + onde : 'Total pago',
+      payLabel: o.pay_method === 'pix' ? 'Pix' : o.pay_method === 'cartao' ? 'Cartão' : o.fulfil === 'entrega' ? 'Na entrega' : 'Na loja',
+      lines: o.order_items.map(function (l) { return { qty: l.qty, name: l.name, variant: l.variant_label, totalLabel: brl(l.unit_cents * l.qty) }; }),
+      summary: rows,
+      itemsLabel: o.order_items.map(function (l) { return l.qty + '× ' + l.name; }).join(', '),
+      pointsNote: cancelled ? 'Pedido cancelado: nenhum ponto creditado.' : credited ? '+' + o.points_to_earn + ' pontos creditados no seu cartão fidelidade.'
+        : o.points_to_earn ? '+' + o.points_to_earn + ' pontos serão creditados na conclusão.' : '',
+      awaitingPayment: waiting,
+      canCancel: o.status === 'aguardando_pagamento' || o.status === 'pago' || o.status === 'confirmado',
+      steps: steps.map(function (st, i) {
+        var ok = !cancelled && idx >= 0 && i <= idx, cur = !cancelled && i === idx;
+        return { label: STATUS_LABEL[st], dot: ok ? GREEN : '#FFFFFF', ring: ok ? GREEN : LINE,
+          line: i === steps.length - 1 ? 'transparent' : (ok && i < idx ? GREEN : '#DCDDD7'), weight: cur ? '800' : '500', text: ok ? INK : MUTED };
+      })
+    };
+  }
+
+  // ------------------------------------------------------------ valores da tela
+  renderVals() {
+    var self = this;
+    var s = this.s();
+    var go = function (screen) { return function () { self.setState({ screen: screen, payError: '' }); }; };
+    var is = {}; is[s.screen] = true;
+    var run = function (fn) {
+      return async function () {
+        if (self.s().busy) return;
+        self.setState({ busy: true });
+        try { await fn.apply(null, arguments); } catch (e) { self.flash(msgErro(e)); } finally { self.setState({ busy: false }); }
+      };
+    };
+    var tint = function (p) { var f = (p.photos || [])[0]; return f ? 'url("' + f + '") center / cover no-repeat, ' + (p.tint || '#DCDDD7') : p.tint || '#DCDDD7'; };
+    var isService = function (p) { return p.kind === 'servico'; };
+    var stockOf = function (p) { return p.product_variants.reduce(function (a, v) { return a + v.stock; }, 0); };
+    var asCard = function (p) {
+      return { name: p.name, storeName: self.storeById(p.store_id).name, priceLabel: brl(p.price_cents), tint: tint(p), tag: p.tag || 'Destaque',
+        tagColor: p.tag === 'Oferta' ? PROMO : GREEN, isService: isService(p), open: function () { self.openProduct(p); } };
+    };
+
+    var q = s.query.trim().toLowerCase();
+    var results = q ? s.products.filter(function (p) { return (p.name + ' ' + p.category + ' ' + self.storeById(p.store_id).name).toLowerCase().indexOf(q) >= 0; }) : [];
+
+    var store = this.storeById(s.storeId);
+    var inStore = s.products.filter(function (p) { return p.store_id === s.storeId; });
+    var cats = ['Todos'].concat(inStore.map(function (p) { return p.category; }).filter(function (c, i, a) { return c && a.indexOf(c) === i; }));
+    // entrega só com a liberação da administração e a loja oferecendo
+    var entrega = function (st) { return !!(st.delivery && st.delivery_enabled); };
+    var modes = function (st) { return entrega(st) ? 'Entrega e retirada' : 'Só retirada'; };
+    var pill = function (on) { return { bg: on ? INK : '#FFFFFF', fg: on ? '#FFFFFF' : INK, bd: on ? INK : LINE }; };
+
+    var prod = this.productById(s.productId) || { product_variants: [], name: '', price_cents: 0 };
+    var curVar = prod.product_variants.find(function (v) { return v.id === s.variant; });
+    var vStock = curVar ? curVar.stock : 0;
+
+    var cartStore = this.storeById(s.cart.store);
+    var payMethod = this.payMethodFor(cartStore);
+    var quote = s.quote;
+    var cartCount = s.cart.items.reduce(function (a, it) { return a + it.qty; }, 0);
+    var setCart = function (items) {
+      self.dropPending();
+      self.setState({ cart: { store: items.length ? s.cart.store : null, items: items } });
+      self.requote(150);
+    };
+    var summary = [];
+    if (quote) {
+      summary.push({ label: 'Subtotal', value: brl(quote.subtotal_cents), color: INK });
+      if (quote.coupon_discount_cents) summary.push({ label: 'Cupom ' + quote.coupon_code, value: '− ' + brl(quote.coupon_discount_cents), color: PROMO });
+      if (quote.redeem_discount_cents) summary.push({ label: 'Resgate de ' + quote.points_redeemed + ' pontos', value: '− ' + brl(quote.redeem_discount_cents), color: PROMO });
+      summary.push({ label: s.fulfil === 'entrega' ? 'Entrega' : 'Retirada na loja', value: quote.shipping_cents ? brl(quote.shipping_cents) : s.fulfil === 'entrega' ? 'A combinar' : 'Grátis', color: INK });
+    }
+    // entrega da sacola: o maior valor entre os produtos (produto sem valor próprio usa a taxa geral da loja)
+    var taxaEntrega = s.cart.items.reduce(function (m, it) {
+      var f = self.variantById(it.variant_id);
+      var v = f && f.p.delivery_fee_cents != null ? f.p.delivery_fee_cents : (cartStore.delivery_fee_cents || 0);
+      return Math.max(m, v);
+    }, s.cart.items.length ? 0 : (cartStore.delivery_fee_cents || 0));
+    var prog = cartStore.loyalty_programs;
+    var couponMsg = quote && s.couponApplied ? quote.coupon_message : (s.quoteError || '');
+
+    var curOrder = s.orders.find(function (o) { return o.id === s.orderId; });
+    var chatStore = this.storeById(s.chatStore);
+    var conv = s.convs[s.chatStore];
+    var faltam = [];
+    var msgs = (conv ? conv.messages : []).map(function (m) {
+      var me = !m.from_store, p = m.product_id ? self.productById(m.product_id) : null, src = m.image_path ? s.imgUrls[m.image_path] : '';
+      if (m.image_path && !src) faltam.push(m.image_path);
+      // promoção, bônus ou aviso enviado pela loja a todos os clientes: "Tipo: título\ntexto"
+      var bc = m.broadcast_kind && !m.image_path, linhas = bc ? m.body.replace(/^[^:]*:\s*/, '').split('\n') : [];
+      return { justify: me ? 'flex-end' : 'flex-start', bg: me ? GREEN : '#FFFFFF', fg: me ? '#FFFFFF' : INK, text: m.body,
+        isBroadcast: bc, badge: BROADCAST_LABEL[m.broadcast_kind] || '', bTitle: linhas[0] || '', bBody: linhas.slice(1).join('\n'),
+        isText: !p && !m.image_path && !bc, isProduct: !!p, isImage: !!m.image_path,
+        // imagem que o próprio cliente enviou: pode apagar (para os dois lados)
+        canDelete: me && !!m.image_path && !m.broadcast_kind, confirming: s.confirmDeleteImg === m.id, notConfirming: s.confirmDeleteImg !== m.id,
+        askDelete: function () { self.setState({ confirmDeleteImg: m.id }); },
+        cancelDelete: function () { self.setState({ confirmDeleteImg: null }); },
+        doDelete: function () { self.apagarImagem(m); }, hasSrc: !!src, noSrc: !src, src: src || '', name: p ? p.name : '', priceLabel: p ? brl(p.price_cents) : '', tint: p ? tint(p) : '',
+        open: function () { if (p) self.openProduct(p); } };
+    });
+    if (faltam.length && s.screen === 'chat') setTimeout(function () { self.assinarImagens(faltam); }, 0);
+    var openChat = async function (storeId) {
+      if (!s.convs[storeId]) {
+        var r = await sb.rpc('open_conversation', { p_store: storeId });
+        if (r.error) throw r.error;
+        var convs = Object.assign({}, self.s().convs); convs[storeId] = { id: r.data, muted: false, messages: [] };
+        self.setState({ convs: convs });
+      }
+      self.setState({ screen: 'chat', chatStore: storeId });
+      self.marcarLida(storeId);
+    };
+    var balance = function (storeId) {
+      return s.ledger.filter(function (l) { return l.store_id === storeId && (!l.expires_at || new Date(l.expires_at) > new Date()); })
+        .reduce(function (a, l) { return a + l.points; }, 0);
+    };
+
+    var naoLidas = function (c) { return c ? c.messages.filter(function (m) { return m.from_store && m.id > (c.readId || 0); }).length : 0; };
+    var totalNaoLidas = Object.keys(s.convs).reduce(function (n, sid) { return n + (s.convs[sid].muted ? 0 : naoLidas(s.convs[sid])); }, 0);
+    var tabDefs = [
+      { key: 'grupo', label: 'Início', d1: 'M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z', d2: '', screens: ['grupo', 'loja', 'produto'] },
+      { key: 'sacola', label: 'Sacola', d1: 'M5 8h14l-1 13H6L5 8z', d2: 'M9 8V6a3 3 0 0 1 6 0v2', screens: ['sacola', 'checkout', 'pix'] },
+      { key: 'pedidos', label: 'Pedidos', d1: 'M6 3h12v18l-3-2-3 2-3-2-3 2z', d2: 'M9 8h6M9 12h6', screens: ['pedidos', 'pedido'] },
+      { key: 'mensagens', label: 'Mensagens', d1: 'M4 5h16v11H9l-5 4z', d2: '', screens: ['mensagens', 'chat'] },
+      { key: 'fidelidade', label: 'Fidelidade', d1: 'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.6l1-5.8L3.5 9.7l5.9-.9z', d2: '', screens: ['fidelidade'] }
+    ];
+    var showNav = !s.visitor && ['carregando', 'pendente', 'convite', 'cadastro', 'entrar', 'pix', 'chat', 'solicitar'].indexOf(s.screen) < 0;
+    var canLogin = !!(s.codeSent && s.otp.replace(/\D/g, '').length === 6 && !s.busy);
+    var fotos = prod.photos || [], fi = fotos.length ? ((s.photoIdx % fotos.length) + fotos.length) % fotos.length : 0;
+    var digitos = function (t) { return String(t || '').replace(/\D/g, ''); };
+    var contatos = function (st) {
+      var c = [], w = digitos(st.whatsapp), ig = String(st.instagram || '').trim().replace(/^@/, '').replace(/^https?:\/\/(www\.)?instagram\.com\//, '').replace(/\/$/, '');
+      if (w) c.push({ label: 'WhatsApp', href: 'https://wa.me/' + (w.length <= 11 ? '55' + w : w) });
+      if (digitos(st.phone)) c.push({ label: 'Ligar · ' + st.phone, href: 'tel:' + digitos(st.phone) });
+      if (st.email) c.push({ label: 'E-mail', href: 'mailto:' + st.email });
+      if (ig) c.push({ label: 'Instagram', href: 'https://instagram.com/' + ig });
+      if (st.website) c.push({ label: 'Site', href: /^https?:\/\//.test(st.website) ? st.website : 'https://' + st.website });
+      return c;
+    };
+    var canSignup = !!(s.name.trim() && s.codeSent && s.otp.replace(/\D/g, '').length === 6 && s.accepted && !s.busy);
+    var inv = s.invite;
+
+    return {
+      is: is, busy: s.busy,
+      loadingText: s.loadingText, hasLoadError: s.loadError, retryLoad: function () { self.boot(); },
+      signOut: run(async function () {
+        self.setState({ confirmingSignOut: false });
+        var canal = self._canal; self._canal = null; clearTimeout(self._reassinar);
+        if (canal) sb.removeChannel(canal);
+        await sb.auth.signOut();
+      }),
+      // sair pelo início: antes avisa que a volta será com um código novo no e-mail
+      confirmingSignOut: !!s.confirmingSignOut, meEmail: s.me ? s.me.email : '',
+      askSignOut: function () { self.setState({ confirmingSignOut: true }); },
+      cancelSignOut: function () { self.setState({ confirmingSignOut: false }); },
+      groupName: s.visitor ? 'Lojas do clube' : s.group ? s.group.name : (inv ? inv.group : 'clube'),
+      groupRules: s.visitor ? 'Comprar, conversar com as lojas e juntar pontos é só para membros. Peça o seu convite a uma loja ou à administração do clube.' : s.group ? s.group.rules : '',
+
+      // convite
+      inviteCode: s.inviteCode, inviteInvalid: s.inviteInvalid, noInvite: s.noInvite,
+      inviteTitle: inv ? 'Você foi convidado para o ' + inv.group : 'Você recebeu um convite?',
+      hasInviteLine: !!inv,
+      inviteLine: inv ? 'Enviado ' + (inv.inviter ? 'por ' + inv.inviter + ', ' : '') + 'do ' + inv.store + (inv.expires_at ? ' · válido até ' + hoje(inv.expires_at) : '') + (inv.remaining == null ? '' : ' · ' + inv.remaining + (inv.remaining === 1 ? ' uso restante' : ' usos restantes')) : '',
+      acceptLabel: s.busy ? 'Verificando…' : 'Aceitar convite',
+      onInviteCode: function (e) { self.setState({ inviteCode: e.target.value, inviteInvalid: false, invite: null }); },
+      acceptInvite: run(async function () {
+        var info = await self.lookupInvite(self.s().inviteCode);
+        if (!info) return;
+        guardar(CONVITE_KEY, self.s().inviteCode.trim());
+        if (self.s().me) await self.accept(self.s().inviteCode, null); // já logado (ex.: convite novo)
+        else self.setState({ screen: 'cadastro', noInvite: false });
+      }),
+      toggleNoInvite: function () { self.setState({ noInvite: !s.noInvite }); },
+      goConvite: function () { self.setState({ screen: 'convite', visitor: false }); },
+      // visitante e pedido de convite
+      isVisitor: !!s.visitor, notVisitor: !s.visitor,
+      hello: s.visitor ? 'Olá, visitante' : 'Olá, ' + ((s.me && s.me.name ? s.me.name.split(' ')[0] : '') || 'membro'),
+      headerLabel: s.visitor ? 'Entrar' : 'Sair',
+      // tema claro/escuro: Automático (segue o aparelho) → Claro → Escuro
+      temaLabel: 'Tema: ' + { auto: 'automático', claro: 'claro', escuro: 'escuro' }[window.__tema ? window.__tema.get() : 'auto'],
+      temaShort: { auto: 'Automático', claro: 'Claro', escuro: 'Escuro' }[window.__tema ? window.__tema.get() : 'auto'],
+      cycleTheme: function () {
+        if (!window.__tema) return;
+        var next = { auto: 'claro', claro: 'escuro', escuro: 'auto' }[window.__tema.get()];
+        window.__tema.set(next);
+        self.setState({ tema: next });
+        self.flash(next === 'auto' ? 'Tema automático: segue o tema do aparelho.' : next === 'escuro' ? 'Tema escuro.' : 'Tema claro.');
+      },
+      headerAction: s.visitor ? function () { self.setState({ screen: 'convite', visitor: false }); } : function () { self.setState({ confirmingSignOut: true }); },
+      openVitrine: run(function () { return self.loadVitrine(); }),
+      goSolicitarGeral: run(async function () { await self.pedirConvite(''); }),
+      reqNotSent: !s.req.sentTo, reqSent: !!s.req.sentTo,
+      reqStore: s.req.store, reqName: s.req.name, reqEmail: s.req.email, reqPhone: s.req.phone,
+      reqOptions: [{ value: '', label: 'Administração do clube' }].concat(s.stores.map(function (st) { return { value: st.id, label: st.name }; })),
+      onReqStore: function (e) { self.setState({ req: Object.assign({}, self.s().req, { store: e.target.value }) }); },
+      onReqName: function (e) { self.setState({ req: Object.assign({}, self.s().req, { name: e.target.value }) }); },
+      onReqEmail: function (e) { self.setState({ req: Object.assign({}, self.s().req, { email: e.target.value }) }); },
+      onReqPhone: function (e) { self.setState({ req: Object.assign({}, self.s().req, { phone: e.target.value }) }); },
+      reqLabel: s.busy ? 'Enviando…' : 'Enviar pedido de convite',
+      reqBack: function () { var b = self.s().req.back; self.setState({ screen: b, req: Object.assign({}, self.s().req, { sentTo: '' }) }); },
+      sendRequest: run(async function () {
+        var q = self.s().req;
+        var r = await sb.rpc('request_invite', { p_store: q.store || null, p_name: q.name, p_email: q.email.trim().toLowerCase(), p_phone: q.phone });
+        if (r.error) throw r.error;
+        self.setState({ req: Object.assign({}, q, { sentTo: r.data }) });
+      }),
+      reqSentText: 'Seu pedido foi para ' + s.req.sentTo + '. Quando for aprovado, toque em "Já fui aprovado · entrar" e use o e-mail ' + s.req.email.trim().toLowerCase() + ': chega um código de acesso e você já entra como membro.',
+      goEntrarAprovado: function () { self.setState({ screen: 'entrar', visitor: false, contact: self.s().req.email.trim().toLowerCase(), codeSent: false, otp: '', loginMsg: '' }); },
+      goEntrar: function () { self.setState({ screen: 'entrar', visitor: false, codeSent: false, otp: '', loginMsg: '' }); },
+      hasLoginMsg: !!s.loginMsg, loginMsg: s.loginMsg,
+      sendLoginCode: run(async function () {
+        var email = self.s().contact.trim().toLowerCase();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { self.setState({ loginMsg: 'Informe um e-mail válido.' }); return; }
+        // só envia para quem já tem cadastro: o passaporte não cria conta nova
+        var r = await sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false } });
+        if (r.error) {
+          // primeiro acesso de quem teve o pedido de convite aprovado: aí sim cria a conta
+          var ok = await sb.rpc('invite_request_approved', { p_email: email });
+          if (ok.data === true) r = await sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: true } });
+        }
+        if (r.error) { self.setState({ loginMsg: 'Não encontramos cadastro com este e-mail. Para entrar pela primeira vez, use um convite ou peça o seu.' }); return; }
+        self.setState({ codeSent: true, loginMsg: '' });
+        self.flash('Código enviado para ' + email + '.');
+      }),
+      cannotLogin: !canLogin, loginBg: canLogin ? GREEN : '#9AA39F', loginLabel: s.busy ? 'Entrando…' : 'Entrar',
+      finishLogin: run(async function () {
+        var st = self.s();
+        var r = await sb.auth.verifyOtp({ email: st.contact.trim().toLowerCase(), token: st.otp.replace(/\D/g, ''), type: 'email' });
+        if (r.error) { self.setState({ loginMsg: 'Código incorreto ou vencido.' }); return; }
+        self.setState({ otp: '', codeSent: false });
+        await self.loadAll();
+        if (self.s().screen === 'convite') self.flash('Este e-mail ainda não é membro do clube. Use o seu convite.');
+      }),
+
+      // cadastro e login
+      name: s.name, contact: s.contact, codeSent: s.codeSent, otp: s.otp, accepted: s.accepted,
+      signupSubtitle: 'Convite ' + s.inviteCode.trim().toUpperCase() + ' válido. Confirme seu e-mail para entrar.',
+      onName: function (e) { self.setState({ name: e.target.value }); },
+      onContact: function (e) { self.setState({ contact: e.target.value, codeSent: false }); },
+      onOtp: function (e) { self.setState({ otp: e.target.value }); },
+      sendCode: run(async function () {
+        var email = self.s().contact.trim().toLowerCase();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { self.flash('Informe um e-mail válido.'); return; }
+        var r = await sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: true } });
+        if (r.error) throw r.error;
+        self.setState({ codeSent: true });
+        self.flash('Código enviado para ' + email + '.');
+      }),
+      toggleAccepted: function () { self.setState({ accepted: !s.accepted }); },
+      cannotSignup: !canSignup, signupBg: canSignup ? GREEN : '#9AA39F',
+      signupLabel: s.busy ? 'Entrando…' : 'Entrar no clube',
+      finishSignup: run(async function () {
+        var st = self.s();
+        var r = await sb.auth.verifyOtp({ email: st.contact.trim().toLowerCase(), token: st.otp.replace(/\D/g, ''), type: 'email' });
+        if (r.error) throw new Error('Código incorreto ou vencido.');
+        await self.accept(st.inviteCode, st.name.trim());
+      }),
+      firstName: (s.me && s.me.name ? s.me.name.split(' ')[0] : '') || 'membro',
+
+      // início
+      query: s.query, onQuery: function (e) { self.setState({ query: e.target.value }); },
+      hasQuery: !!q, noQuery: !q,
+      searchResults: results.map(asCard),
+      searchCount: results.length === 1 ? '1 produto encontrado' : results.length + ' produtos encontrados',
+      // destaques do dia escolhidos por cada loja (dentro do limite da administração)
+      highlights: s.products.filter(function (p) { return p.highlighted_today && stockOf(p) > 0; }).map(asCard),
+      hasHighlights: s.products.some(function (p) { return p.highlighted_today && stockOf(p) > 0; }),
+      storeCards: s.stores.map(function (st) { return { name: st.name, cat: st.category, initials: st.initials, color: st.color, modes: modes(st) + ' · ' + st.hours, open: function () { self.setState({ screen: 'loja', storeId: st.id, cat: 'Todos' }); } }; }),
+      goGrupo: go('grupo'),
+
+      // loja
+      store: { name: store.name, cat: store.category, initials: store.initials, color: store.color || GREEN, about: store.about, hours: store.hours, policy: store.policy, modes: store.id ? modes(store) : '',
+        address: store.address || '', hasAddress: !!store.address, contacts: contatos(store), hasContacts: contatos(store).length > 0,
+        document: store.document ? 'CNPJ/CPF ' + store.document : '', hasDocument: !!store.document },
+      openStoreChat: run(function () { return s.visitor ? self.pedirConvite(s.storeId) : openChat(s.storeId); }),
+      storeChatLabel: s.visitor ? 'Pedir convite a esta loja' : 'Conversar com a loja',
+      catChips: cats.map(function (c) { return Object.assign({ label: c, pick: function () { self.setState({ cat: c }); } }, pill(c === s.cat)); }),
+      storeProducts: inStore.filter(function (p) { return s.cat === 'Todos' || p.category === s.cat; }).map(function (p) {
+        return { name: p.name, tint: tint(p), tag: p.tag, hasTag: !!p.tag, tagColor: p.tag === 'Oferta' ? PROMO : GREEN, priceLabel: brl(p.price_cents),
+          hasOld: !!p.old_price_cents, oldLabel: p.old_price_cents ? brl(p.old_price_cents) : '', soldOut: stockOf(p) === 0, isService: isService(p), open: function () { self.openProduct(p); } };
+      }),
+      goLoja: go('loja'),
+
+      // produto
+      product: { name: prod.name, cat: prod.category, desc: prod.description, tint: tint(prod), storeName: this.storeById(prod.store_id).name,
+        priceLabel: brl(prod.price_cents), hasOld: !!prod.old_price_cents, oldLabel: prod.old_price_cents ? brl(prod.old_price_cents) : '', variantLabel: prod.variant_label,
+        photoBg: fotos.length ? 'url("' + fotos[fi] + '") center / cover no-repeat, ' + tint({ tint: prod.tint }) : tint(prod),
+        manyPhotos: fotos.length > 1, photoCounter: (fi + 1) + ' de ' + fotos.length,
+        isService: isService(prod), isProduct: !isService(prod),
+        hasDeadline: prod.pay_deadline_hours != null, deadlineLabel: prod.pay_deadline_hours ? 'Prazo para pagamento: ' + prazoTexto(prod.pay_deadline_hours) + '. Sem pagamento nesse tempo, a compra é cancelada.' : 'Sem prazo para pagamento.' },
+      prevPhoto: function () { self.setState({ photoIdx: fi - 1 }); }, nextPhoto: function () { self.setState({ photoIdx: fi + 1 }); },
+      addLabel: s.visitor ? 'Pedir convite para comprar' : isService(prod) ? 'Contratar serviço' : 'Adicionar à sacola',
+      variantPills: prod.product_variants.map(function (v) {
+        var out = v.stock === 0, on = v.id === s.variant;
+        return { label: v.label, out: out, bg: on ? GREEN : '#FFFFFF', fg: out ? '#8A8F96' : on ? '#FFFFFF' : INK, bd: on ? GREEN : LINE, td: out ? 'line-through' : 'none',
+          pick: function () { self.setState({ variant: v.id, qty: 1 }); } };
+      }),
+      stockLabel: !curVar ? 'Produto indisponível no momento' : vStock <= 3 ? 'Últimas ' + vStock + ' unidades' : vStock + ' em estoque',
+      stockColor: !curVar ? RED : vStock <= 3 ? PROMO : MUTED,
+      qty: s.qty,
+      qtyDown: function () { self.setState({ qty: Math.max(1, s.qty - 1) }); },
+      qtyUp: function () { self.setState({ qty: Math.min(vStock || 1, s.qty + 1) }); },
+      addToCart: function () {
+        if (self.s().visitor) { self.pedirConvite(prod.store_id); return; }
+        if (!curVar) { self.flash('Produto indisponível.'); return; }
+        var swapped = s.cart.store && s.cart.store !== prod.store_id;
+        var items = swapped ? [] : s.cart.items.slice();
+        var idx = items.findIndex(function (it) { return it.variant_id === curVar.id; });
+        if (idx >= 0) items[idx] = Object.assign({}, items[idx], { qty: Math.min(vStock, items[idx].qty + s.qty) });
+        else items.push({ variant_id: curVar.id, qty: s.qty });
+        self.dropPending();
+        var st = self.storeById(prod.store_id);
+        self.setState({ cart: { store: prod.store_id, items: items }, screen: 'sacola',
+          couponApplied: swapped ? '' : s.couponApplied, coupon: swapped ? '' : s.coupon, useRedeem: swapped ? false : s.useRedeem,
+          fulfil: entrega(st) ? s.fulfil : 'retirada' });
+        self.requote();
+        self.flash(swapped ? 'Sacola trocada: cada pedido é de uma loja só.' : isService(prod) ? 'Serviço adicionado à sacola.' : 'Adicionado à sacola.');
+      },
+      askProduct: run(async function () {
+        await openChat(prod.store_id);
+        var c = self.s().convs[prod.store_id];
+        var r = await sb.from('messages').insert({ conversation_id: c.id, sender_id: s.me.id, product_id: prod.id, body: '' }).select().single();
+        if (r.error) throw r.error;
+        var convs = Object.assign({}, self.s().convs);
+        convs[prod.store_id] = Object.assign({}, c, { messages: c.messages.concat([r.data]) });
+        self.setState({ convs: convs });
+      }),
+
+      // sacola
+      cartEmpty: s.cart.items.length === 0, cartFull: s.cart.items.length > 0,
+      cartStore: { name: cartStore.name, initials: cartStore.initials, color: cartStore.color || GREEN },
+      cartLines: s.cart.items.map(function (it, i) {
+        var f = self.variantById(it.variant_id) || { v: { label: '', stock: 0 }, p: { name: '', price_cents: 0 } };
+        return { name: f.p.name, variant: f.v.label, qty: it.qty, tint: tint(f.p), unitLabel: brl(f.p.price_cents), totalLabel: brl(f.p.price_cents * it.qty),
+          inc: function () { if (it.qty < f.v.stock) setCart(s.cart.items.map(function (x, j) { return j === i ? Object.assign({}, x, { qty: x.qty + 1 }) : x; })); else self.flash('Estoque máximo atingido.'); },
+          dec: function () { setCart(s.cart.items.map(function (x, j) { return j === i ? Object.assign({}, x, { qty: x.qty - 1 }) : x; }).filter(function (x) { return x.qty > 0; })); } };
+      }),
+      hasDeliveryNote: entrega(cartStore),
+      fulfilOpts: [
+        Object.assign({ label: 'Retirada', sub: 'Grátis · na loja', off: false, pick: function () { self.dropPending(); self.setState({ fulfil: 'retirada' }); self.requote(); } },
+          s.fulfil === 'retirada' ? { bg: '#E3EEE9', fg: '#123B2E', bd: GREEN } : { bg: '#FFFFFF', fg: INK, bd: LINE }),
+        Object.assign({ label: 'Entrega', sub: entrega(cartStore) ? (taxaEntrega ? brl(taxaEntrega) + ' · combinada com a loja' : 'Combinada com a loja') : 'Loja não entrega', off: !entrega(cartStore),
+          pick: function () { self.dropPending(); self.setState({ fulfil: 'entrega' }); self.requote(); } },
+          s.fulfil === 'entrega' ? { bg: '#E3EEE9', fg: '#123B2E', bd: GREEN } : { bg: '#FFFFFF', fg: entrega(cartStore) ? INK : '#8A8F96', bd: LINE })
+      ],
+      coupon: s.coupon,
+      onCoupon: function (e) { self.setState({ coupon: e.target.value }); },
+      applyCoupon: function () { self.dropPending(); self.setState({ couponApplied: s.coupon.trim() }); self.requote(); },
+      hasCouponMsg: !!couponMsg, couponMsg: couponMsg,
+      couponMsgColor: quote && quote.coupon_ok ? GREEN : RED,
+      useRedeem: !!(s.useRedeem && quote && quote.can_redeem), redeemBlocked: !(quote && quote.can_redeem),
+      redeemColor: quote && quote.can_redeem ? INK : '#8A8F96',
+      toggleRedeem: function () { self.dropPending(); self.setState({ useRedeem: !s.useRedeem }); self.requote(); },
+      cartBalance: quote ? quote.points_balance : balance(s.cart.store),
+      // o resgate usa todos os blocos completos do saldo (até zerar os produtos); o servidor diz quanto dá
+      redeemLabel: quote && quote.redeem_max_points ? 'Usar ' + quote.redeem_max_points + ' pontos (−' + brl(quote.redeem_max_cents) + ')' : 'Usar pontos',
+      hasRedeemNote: !!(quote && quote.redeem_note), redeemNote: quote ? quote.redeem_note || '' : '',
+      summaryRows: summary, totalLabel: quote ? brl(quote.total_cents) : '—', pointsToEarn: quote ? quote.points_to_earn : 0,
+      goSacola: go('sacola'),
+      cartStoreName: cartStore.name || 'a loja',
+      keepShopping: function () { self.setState({ screen: 'loja', storeId: self.s().cart.store, cat: 'Todos' }); },
+      goCheckout: function () {
+        if (!quote) { self.flash(s.quoteError || 'Calculando o total…'); return; }
+        self.setState({ screen: 'checkout', payError: '' });
+      },
+
+      // pagamento
+      isDelivery: s.fulfil === 'entrega', isPickup: s.fulfil !== 'entrega',
+      address: s.address, onAddress: function (e) { self.dropPending(); self.setState({ address: e.target.value }); },
+      fulfilTitle: s.fulfil === 'entrega' ? 'Entregar em' : 'Retirar em',
+      fulfilAddress: cartStore.name + (cartStore.pickup_address ? ' · ' + cartStore.pickup_address : ''),
+      fulfilHint: s.fulfil === 'entrega' ? 'A forma, o local e o horário da entrega são combinados com ' + cartStore.name + ' pela conversa.' + (taxaEntrega ? '' : ' A taxa, se houver, também.') : 'Você recebe um aviso quando o pedido estiver pronto. ' + (cartStore.hours || ''),
+      payOpts: self.payMethodsOf(cartStore).map(function (k) {
+        var on = payMethod === k;
+        var info = { pix: ['Pix', 'Direto para a loja · QR code ou copia e cola'],
+          na_loja: [s.fulfil === 'entrega' ? 'Pagar na entrega' : 'Pagar na loja', 'Combine a forma com ' + cartStore.name + ' · nada é cobrado pelo app'] }[k];
+        return { label: info[0], sub: info[1], pick: function () { self.dropPending(); self.setState({ payMethod: k, payError: '' }); },
+          bd: on ? GREEN : LINE, dot: on ? GREEN : 'transparent' };
+      }),
+      payNote: payMethod === 'na_loja'
+        ? 'O pedido vai confirmado para ' + cartStore.name + ' e o estoque fica reservado. Você paga direto para a loja ' + (s.fulfil === 'entrega' ? 'na entrega.' : 'na retirada.')
+        : 'O Pix vai direto para a conta de ' + cartStore.name + '. Depois de pagar, você avisa pelo app e a loja confirma o recebimento.',
+      payError: !!s.payError, payErrorText: s.payError,
+      payCta: s.busy ? 'Aguarde…' : payMethod === 'pix' ? 'Gerar Pix de ' + (quote ? brl(quote.total_cents) : '')
+        : payMethod === 'na_loja' ? 'Confirmar pedido de ' + (quote ? brl(quote.total_cents) : '') : 'Pagar ' + (quote ? brl(quote.total_cents) : ''),
+      pay: run(async function () {
+        var st = self.s(), metodo = self.payMethodFor(self.storeById(st.cart.store));
+        if (!st.cart.items.length) { self.setState({ screen: 'sacola' }); return; }
+        if (st.fulfil === 'entrega' && !st.address.trim()) { self.flash('Informe o endereço de entrega.'); return; }
+        var id = st.pendingOrder;
+        if (!id) {
+          var r = await sb.rpc('place_order', {
+            p_store: st.cart.store, p_items: st.cart.items, p_coupon: st.couponApplied || null, p_use_points: !!(st.useRedeem && st.quote && st.quote.can_redeem),
+            p_fulfil: st.fulfil, p_address: st.address.trim(), p_pay_method: metodo });
+          if (r.error) throw r.error;
+          if (metodo === 'na_loja') {
+            await self.reloadOrders();
+            self.setState({ screen: 'pedido', orderId: r.data, cart: { store: null, items: [] }, quote: null, coupon: '', couponApplied: '', useRedeem: false, payError: '' });
+            self.flash('Pedido #' + r.data + ' confirmado. Pague direto para a loja ' + (st.fulfil === 'entrega' ? 'na entrega.' : 'na retirada.'));
+            return;
+          }
+          id = r.data;
+          self.setState({ pendingOrder: id });
+          await self.reloadOrders();
+        }
+        self.setState({ payError: '' });
+        self.startPayment(id);
+      }),
+      // pix
+      pix: (function () {
+        if (!s.pix) return { deadline: '', amount: '', store: '', hasQr: false, noQr: true, qrSrc: '', key: '', name: '', canInform: false, informed: false };
+        var po = s.orders.find(function (o) { return o.id === s.pix.orderId; }), informed = !!(po && po.pix_informed_at);
+        return { amount: s.pix.amount, store: s.pix.store, hasQr: !!s.pix.qrSrc, noQr: !s.pix.qrSrc, qrSrc: s.pix.qrSrc, key: s.pix.key, name: s.pix.name,
+          canInform: !informed, informed: informed,
+          deadline: po && po.pay_deadline_hours ? 'Sem confirmação até ' + venceEm(po) + ', o pedido é cancelado.' : 'Sem confirmação no prazo, o pedido é cancelado.' };
+      })(),
+      pixCopyLabel: s.pixCopied ? 'Código copiado' : 'Copiar código Pix',
+      copyPix: function () {
+        try { navigator.clipboard.writeText(s.pix ? s.pix.code : ''); } catch (e) {}
+        self.setState({ pixCopied: true });
+      },
+      informPix: run(async function () {
+        var id = self.s().pix.orderId;
+        var r = await sb.rpc('inform_pix_paid', { p_order: id });
+        if (r.error) throw r.error;
+        await self.reloadOrders();
+        self.setState({ pendingOrder: null, cart: { store: null, items: [] }, quote: null, coupon: '', couponApplied: '', useRedeem: false });
+        self.flash('Aviso enviado para a loja. O pedido muda para Pago quando ela confirmar o Pix.');
+      }),
+      openPendingOrder: function () { self.setState({ screen: 'pedido', orderId: s.pix ? s.pix.orderId : s.orderId }); },
+
+      // pedido
+      order: curOrder ? this.orderView(curOrder) : { steps: [], lines: [], summary: [] },
+      payAgain: run(function () { self.startPayment(curOrder.id); }),
+      cancelOrder: run(async function () {
+        var r = await sb.rpc('cancel_order', { p_order: curOrder.id, p_reason: 'Cancelado pelo comprador' });
+        if (r.error) throw r.error;
+        if (self.s().pendingOrder === curOrder.id) self.setState({ pendingOrder: null });
+        await self.reloadOrders();
+        self.flash(r.data === 'reembolsado' ? 'Pedido cancelado. A loja devolve o valor pelo Pix.' : 'Pedido cancelado.');
+      }),
+      chatOrderStore: run(function () { return openChat(curOrder ? curOrder.store_id : s.stores[0].id); }),
+      goPedidos: go('pedidos'),
+
+      // pedidos
+      noOrders: s.orders.length === 0,
+      orderCards: s.orders.map(function (o) { var v = self.orderView(o); v.open = function () { self.setState({ screen: 'pedido', orderId: o.id }); }; return v; }),
+
+      // mensagens
+      threadCards: s.stores.map(function (st) {
+        var c = s.convs[st.id], list = c ? c.messages : [], last = list[list.length - 1];
+        var novas = naoLidas(c);
+        return { name: st.name, initials: st.initials, color: st.color, muted: !!(c && c.muted),
+          unread: novas > 0, unreadLabel: novas === 1 ? '1 nova' : novas + ' novas', bd: novas ? GREEN : '#DCDDD7', previewColor: novas ? INK : '#5B616B', previewWeight: novas ? 700 : 400,
+          preview: last ? (last.broadcast_kind ? (c.messages.filter(function (m) { return m.broadcast_kind && !m.image_path; }).slice(-1)[0] || { body: BROADCAST_LABEL[last.broadcast_kind] }).body.split('\n')[0]
+            : last.product_id ? 'Produto compartilhado' : (last.from_store ? '' : 'Você: ') + (last.image_path ? 'Imagem' : last.body)) : 'Comece uma conversa',
+          open: run(function () { return openChat(st.id); }) };
+      }),
+      goMensagens: go('mensagens'),
+
+      // chat
+      chatStore: { name: chatStore.name, hours: chatStore.hours }, messages: msgs, draft: s.draft,
+      onDraft: function (e) { self.setState({ draft: e.target.value }); },
+      sendMsg: run(async function () {
+        var st = self.s(), t = st.draft.trim(), c = st.convs[st.chatStore];
+        if (!t || !c) return;
+        self.setState({ draft: '' });
+        var r = await sb.from('messages').insert({ conversation_id: c.id, sender_id: st.me.id, body: t }).select().single();
+        if (r.error) { self.setState({ draft: t }); throw r.error; }
+        var convs = Object.assign({}, self.s().convs), cur = convs[st.chatStore];
+        if (!cur.messages.some(function (m) { return m.id === r.data.id; })) convs[st.chatStore] = Object.assign({}, cur, { messages: cur.messages.concat([r.data]) });
+        self.setState({ convs: convs });
+      }),
+      onChatPhoto: run(async function (e) {
+        var file = e && e.target && e.target.files && e.target.files[0];
+        if (e && e.target) e.target.value = '';
+        var st = self.s(), c = st.convs[st.chatStore];
+        if (!file || !c) return;
+        self.flash('Enviando imagem…');
+        var blob = await reduzirFoto(file);
+        var path = c.id + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.jpg';
+        var up = await sb.storage.from('conversas').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+        if (up.error) throw up.error;
+        var r = await sb.from('messages').insert({ conversation_id: c.id, sender_id: st.me.id, body: '', image_path: path }).select().single();
+        if (r.error) throw r.error;
+        var urls = Object.assign({}, self.s().imgUrls); urls[path] = URL.createObjectURL(blob);
+        var convs = Object.assign({}, self.s().convs), cur = convs[st.chatStore];
+        if (!cur.messages.some(function (m) { return m.id === r.data.id; })) convs[st.chatStore] = Object.assign({}, cur, { messages: cur.messages.concat([r.data]) });
+        self.setState({ convs: convs, imgUrls: urls });
+        self.flash('Imagem enviada.');
+      }),
+      muteLabel: conv && conv.muted ? 'Ativar avisos' : 'Silenciar',
+      toggleMute: run(async function () {
+        var r = await sb.from('conversations').update({ buyer_muted: !conv.muted }).eq('id', conv.id);
+        if (r.error) throw r.error;
+        var convs = Object.assign({}, self.s().convs); convs[s.chatStore] = Object.assign({}, conv, { muted: !conv.muted });
+        self.setState({ convs: convs });
+        self.flash(!conv.muted ? 'Conversa silenciada.' : 'Avisos reativados.');
+      }),
+      reportChat: run(async function () {
+        var r = await sb.from('reports').insert({ reporter_id: s.me.id, target_type: 'conversa', target_id: conv ? conv.id : s.chatStore, reason: 'Denúncia enviada pelo app' });
+        if (r.error) throw r.error;
+        self.flash('Denúncia enviada à administração do clube.');
+      }),
+
+      // fidelidade
+      loyaltyCards: s.stores.map(function (st) {
+        var b = balance(st.id), p = st.loyalty_programs || { redeem_points: 100, redeem_value_cents: 1000 };
+        var toNext = p.redeem_points - (b % p.redeem_points);
+        return { name: st.name, initials: st.initials, color: st.color, balance: b,
+          pct: Math.min(100, b >= p.redeem_points ? 100 : Math.round(b / p.redeem_points * 100)) + '%',
+          hint: b >= p.redeem_points ? 'Resgate disponível: até ' + brl(Math.floor(b / p.redeem_points) * p.redeem_value_cents) + ' com ' + (Math.floor(b / p.redeem_points) * p.redeem_points) + ' pontos no próximo pedido' + (st.allow_coupon_with_points ? '' : ' (não acumula com cupom)')
+                                     : 'Faltam ' + toNext + ' pontos para ' + brl(p.redeem_value_cents) };
+      }),
+      ledgerRows: s.ledger.map(function (l) { return { desc: l.reason || l.kind, date: hoje(l.created_at), storeName: self.storeById(l.store_id).name, ptsLabel: (l.points > 0 ? '+' : '−') + Math.abs(l.points), color: l.points > 0 ? GREEN : PROMO }; }),
+
+      // aviso e navegação
+      hasToast: !!s.toast, toast: s.toast, toastBottom: showNav ? '96px' : '24px',
+      showNav: showNav,
+      tabs: tabDefs.map(function (t) {
+        var on = t.screens.indexOf(s.screen) >= 0;
+        return { label: t.label, d1: t.d1, d2: t.d2, color: on ? GREEN : MUTED, hasBadge: (t.key === 'sacola' && cartCount > 0) || (t.key === 'mensagens' && totalNaoLidas > 0), badge: t.key === 'mensagens' ? totalNaoLidas : cartCount, go: go(t.key) };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>
